@@ -1,12 +1,12 @@
-# Arma Reforger HOTAS Configurator
+# Arma Reforger HOTAS Configurator (including airplanes)
 
 A browser-based configurator for setting up HOTAS (Hands On Throttle And Stick) controls in Arma Reforger.
 
 ---
 
-## 🚀 **[Use the Online Tool Here →](https://hotas.deltafarce.win)**
+## 🚀 **[Use the Online Tool Here →](https://codingpandaren.github.io/reforger_hotas_config_aircraft/)**
 
-**Don't download the files!** The configurator is ready to use online at [https://hotas.deltafarce.win](https://hotas.deltafarce.win)
+**Don't download the files!** The configurator is ready to use online at [https://hotas.deltafarce.win](https://codingpandaren.github.io/reforger_hotas_config_aircraft/)
 
 No installation needed - just connect your joystick and start configuring in your browser.
 
@@ -25,7 +25,7 @@ No installation needed - just connect your joystick and start configuring in you
 
 ## Quick Start
 
-1. Visit **[https://hotas.deltafarce.win](https://hotas.deltafarce.win)** in your browser
+1. Visit **[https://hotas.deltafarce.win](https://codingpandaren.github.io/reforger_hotas_config_aircraft/)** in your browser
 2. Connect your HOTAS/joystick
 3. Click **"Start Configuring"**
 4. Follow the prompts to assign each action
@@ -128,7 +128,7 @@ Created for the Arma Reforger community to make HOTAS configuration easier.
 
 ## Links
 
-- **[HOTAS Configurator (Online Tool)](https://hotas.deltafarce.win)** ← Use this!
+- **[HOTAS Configurator (Online Tool)](https://codingpandaren.github.io/reforger_hotas_config_aircraft/)** ← Use this!
 - [Arma Reforger Input Manager Wiki](https://community.bistudio.com/wiki/Arma_Reforger:Input_Manager)
 - [Arma Reforger Official Site](https://reforger.armaplatform.com/)
 

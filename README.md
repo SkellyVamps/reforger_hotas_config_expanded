@@ -68,13 +68,17 @@ If you navigate backward, a **Resume** button appears to jump back to where you 
 
 ## Configuration Actions
 
-The configurator supports 40 actions including:
+The configurator supports 40+ actions including:
 
+- **Fixed-wing aircraft** (flight-core mods — SU-25, SU-33, C-130 and others): pitch/roll/yaw stick axes, absolute throttle axis, landing gear, flaps, airbrake, wheel + parking brakes, engine start/stop, pitch trim, FCS override, reverse thrust, lights
 - **Character**: Fire, weapon switching, optics
 - **Helicopter**: Collective, cyclic, anti-torque, brakes, lights
 - **Turret**: Fire, aiming, rotation, reload
 - **Voice**: VON toggle and channel
 - **Utility**: Get out, map, perform action
+- **WCS Armament** (optional): weapon cycling, fire modes, missile lock activate/confirm, flares/chaff/smoke
+
+Aircraft stick axes are captured per direction and merged into single full-range analog actions in the generated config, matching the flight-core mods' input model — including the absolute throttle axis (full lever travel = idle to full thrust).
 
 ## Technical Details
 

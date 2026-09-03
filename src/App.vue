@@ -1094,8 +1094,10 @@ onMounted(async () => {
   if (webHIDSupported.value) {
     try {
       await initializeWebHID(() => {
+        // Keep device metadata in sync, but do not reset the input baseline here.
+        // This callback fires for every HID input report; resetting the baseline
+        // would consume the button/axis transition before the configurator sees it.
         refreshWebHIDDevices()
-        resetGamepadBaseline()
       })
       refreshWebHIDDevices()
     } catch (error) {

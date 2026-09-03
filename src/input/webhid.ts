@@ -75,6 +75,7 @@ interface ParsedField {
   isArray: boolean
   hasNull: boolean
   axisIndices: number[]
+  buttonIndices: number[]
 }
 
 interface ParsedReport {
@@ -171,11 +172,7 @@ function normalizeAxis(value: number, minimum: number, maximum: number, hasNull:
 function getTopLevelReports(device: HIDDeviceLike): HIDReportLike[] {
   const reportsById = new Map<number, HIDReportLike>()
 
-  // WebHID exposes each top-level collection as a flattened view of the items
-  // inside that collection. If an interface has multiple top-level collections
-  // sharing a report ID, concatenate them in descriptor order so bit offsets
-  // still line up with the complete input report.
-  for (const collection of device.collections ?? []) {
+  function visitCollection(collection: HIDCollectionLike) {
     for (const report of collection.inputReports ?? []) {
       const current = reportsById.get(report.reportId)
       if (current) {
@@ -187,6 +184,16 @@ function getTopLevelReports(device: HIDDeviceLike): HIDReportLike[] {
         })
       }
     }
+
+    for (const child of collection.children ?? []) {
+      visitCollection(child)
+    }
+  }
+
+  // Some HOTAS devices place additional button banks in nested collections.
+  // Walk the whole descriptor tree instead of only reading the top level.
+  for (const collection of device.collections ?? []) {
+    visitCollection(collection)
   }
 
   return [...reportsById.values()]
@@ -198,7 +205,7 @@ function parseReports(device: HIDDeviceLike): {
   axisCount: number
 } {
   const reports = new Map<number, ParsedReport>()
-  let maxButtonIndex = -1
+  let nextButtonIndex = 0
   let nextAxisIndex = 0
 
   for (const report of getTopLevelReports(device)) {
@@ -209,6 +216,7 @@ function parseReports(device: HIDDeviceLike): {
       const usages = expandUsages(item)
       let kind: ParsedField['kind'] = 'ignore'
       const axisIndices: number[] = []
+      const buttonIndices: number[] = []
 
       const firstUsage = usages[0]
       const firstPage = firstUsage === undefined ? -1 : usagePage(firstUsage)
@@ -217,14 +225,7 @@ function parseReports(device: HIDDeviceLike): {
       if (!item.isConstant && firstPage === BUTTON_PAGE) {
         kind = 'button'
         for (let i = 0; i < item.reportCount; i++) {
-          const usage = usages[i] ?? (
-            item.usageMinimum !== undefined
-              ? (item.usageMinimum + i)
-              : firstUsage
-          )
-          if (usage !== undefined) {
-            maxButtonIndex = Math.max(maxButtonIndex, Math.max(0, usageId(usage) - 1))
-          }
+          buttonIndices.push(nextButtonIndex++)
         }
       } else if (
         !item.isConstant &&
@@ -252,7 +253,8 @@ function parseReports(device: HIDDeviceLike): {
         logicalMaximum: item.logicalMaximum,
         isArray: Boolean(item.isArray),
         hasNull: Boolean(item.hasNull),
-        axisIndices
+        axisIndices,
+        buttonIndices
       })
 
       bitOffset += item.reportSize * item.reportCount
@@ -267,7 +269,7 @@ function parseReports(device: HIDDeviceLike): {
 
   return {
     reports,
-    buttonCount: maxButtonIndex + 1,
+    buttonCount: nextButtonIndex,
     axisCount: nextAxisIndex
   }
 }
@@ -324,11 +326,7 @@ function applyInputReport(managed: ManagedHIDDevice, event: HIDInputReportEventL
 
     if (field.kind === 'button') {
       if (field.isArray) {
-        const knownButtons = new Set<number>()
-        for (const usage of field.usages) {
-          if (usagePage(usage) === BUTTON_PAGE) knownButtons.add(Math.max(0, usageId(usage) - 1))
-        }
-        for (const buttonIndex of knownButtons) {
+        for (const buttonIndex of field.buttonIndices) {
           managed.buttons[buttonIndex] = false
         }
 
@@ -340,7 +338,11 @@ function applyInputReport(managed: ManagedHIDDevice, event: HIDInputReportEventL
             field.logicalMinimum < 0
           )
           if (raw > 0) {
-            managed.buttons[Math.max(0, raw - 1)] = true
+            const relativeIndex = raw - Math.max(1, field.logicalMinimum)
+            const buttonIndex = field.buttonIndices[relativeIndex]
+            if (buttonIndex !== undefined) {
+              managed.buttons[buttonIndex] = true
+            }
           }
         }
       } else {
@@ -351,11 +353,10 @@ function applyInputReport(managed: ManagedHIDDevice, event: HIDInputReportEventL
             field.reportSize,
             false
           )
-          const usage = field.usages[i] ?? field.usages[0]
-          const buttonIndex = usage !== undefined && usagePage(usage) === BUTTON_PAGE
-            ? Math.max(0, usageId(usage) - 1)
-            : i
-          managed.buttons[buttonIndex] = raw !== 0
+          const buttonIndex = field.buttonIndices[i]
+          if (buttonIndex !== undefined) {
+            managed.buttons[buttonIndex] = raw !== 0
+          }
         }
       }
     } else if (field.kind === 'axis') {

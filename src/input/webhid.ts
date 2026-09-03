@@ -104,7 +104,6 @@ let deviceCounter = 0
 const GENERIC_DESKTOP_PAGE = 0x01
 const BUTTON_PAGE = 0x09
 const MAX_REFORGER_JOYSTICKS = 4
-
 const AXIS_USAGES = new Set([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39])
 
 function getHID(): HIDLike | null {
@@ -185,15 +184,10 @@ function getTopLevelReports(device: HIDDeviceLike): HIDReportLike[] {
       }
     }
 
-    for (const child of collection.children ?? []) {
-      visitCollection(child)
-    }
+    for (const child of collection.children ?? []) visitCollection(child)
   }
 
-  for (const collection of device.collections ?? []) {
-    visitCollection(collection)
-  }
-
+  for (const collection of device.collections ?? []) visitCollection(collection)
   return [...reportsById.values()]
 }
 
@@ -222,9 +216,7 @@ function parseReports(device: HIDDeviceLike): {
 
       if (!item.isConstant && firstPage === BUTTON_PAGE) {
         kind = 'button'
-        for (let i = 0; i < item.reportCount; i++) {
-          buttonIndices.push(nextButtonIndex++)
-        }
+        for (let i = 0; i < item.reportCount; i++) buttonIndices.push(nextButtonIndex++)
       } else if (
         !item.isConstant &&
         firstPage === GENERIC_DESKTOP_PAGE &&
@@ -233,7 +225,11 @@ function parseReports(device: HIDDeviceLike): {
         kind = 'axis'
         for (let i = 0; i < item.reportCount; i++) {
           const usage = usages[i] ?? firstUsage
-          if (usage !== undefined && usagePage(usage) === GENERIC_DESKTOP_PAGE && AXIS_USAGES.has(usageId(usage))) {
+          if (
+            usage !== undefined &&
+            usagePage(usage) === GENERIC_DESKTOP_PAGE &&
+            AXIS_USAGES.has(usageId(usage))
+          ) {
             axisIndices.push(nextAxisIndex++)
           } else {
             axisIndices.push(-1)
@@ -258,18 +254,10 @@ function parseReports(device: HIDDeviceLike): {
       bitOffset += item.reportSize * item.reportCount
     }
 
-    reports.set(report.reportId, {
-      reportId: report.reportId,
-      fields,
-      totalBits: bitOffset
-    })
+    reports.set(report.reportId, { reportId: report.reportId, fields, totalBits: bitOffset })
   }
 
-  return {
-    reports,
-    buttonCount: nextButtonIndex,
-    axisCount: nextAxisIndex
-  }
+  return { reports, buttonCount: nextButtonIndex, axisCount: nextAxisIndex }
 }
 
 function mappingStorageKey(device: HIDDeviceLike): string {
@@ -290,7 +278,9 @@ function matchingGamepadIndex(device: HIDDeviceLike): number | null {
 
     const id = gamepad.id.toLowerCase()
     const normalizedId = normalizeDeviceName(gamepad.id)
-    const nameMatches = deviceName.length >= 4 && (normalizedId.includes(deviceName) || deviceName.includes(normalizedId))
+    const nameMatches = deviceName.length >= 4 && (
+      normalizedId.includes(deviceName) || deviceName.includes(normalizedId)
+    )
     const vidPidMatches = (
       (id.includes(`vendor: ${vendorHex}`) && id.includes(`product: ${productHex}`)) ||
       (id.includes(`vid_${vendorHex}`) && id.includes(`pid_${productHex}`)) ||
@@ -325,8 +315,9 @@ function loadJoystickIndex(device: HIDDeviceLike): number {
       if (Number.isInteger(parsed) && parsed >= 0 && parsed < MAX_REFORGER_JOYSTICKS) return parsed
     }
   } catch {
-    // localStorage may be unavailable in private/restricted contexts.
+    // Ignore storage failures.
   }
+
   return firstFreeJoystickIndex()
 }
 
@@ -334,7 +325,7 @@ function saveJoystickIndex(device: HIDDeviceLike, index: number) {
   try {
     localStorage.setItem(mappingStorageKey(device), String(index))
   } catch {
-    // Mapping will still work for the current session.
+    // Mapping still works for this session.
   }
 }
 
@@ -357,9 +348,7 @@ function applyInputReport(managed: ManagedHIDDevice, event: HIDInputReportEventL
 
     if (field.kind === 'button') {
       if (field.isArray) {
-        for (const buttonIndex of field.buttonIndices) {
-          managed.buttons[buttonIndex] = false
-        }
+        for (const buttonIndex of field.buttonIndices) managed.buttons[buttonIndex] = false
 
         for (let i = 0; i < field.reportCount; i++) {
           const raw = readBits(
@@ -371,9 +360,7 @@ function applyInputReport(managed: ManagedHIDDevice, event: HIDInputReportEventL
           if (raw > 0) {
             const relativeIndex = raw - Math.max(1, field.logicalMinimum)
             const buttonIndex = field.buttonIndices[relativeIndex]
-            if (buttonIndex !== undefined) {
-              managed.buttons[buttonIndex] = true
-            }
+            if (buttonIndex !== undefined) managed.buttons[buttonIndex] = true
           }
         }
       } else {
@@ -385,9 +372,7 @@ function applyInputReport(managed: ManagedHIDDevice, event: HIDInputReportEventL
             false
           )
           const buttonIndex = field.buttonIndices[i]
-          if (buttonIndex !== undefined) {
-            managed.buttons[buttonIndex] = raw !== 0
-          }
+          if (buttonIndex !== undefined) managed.buttons[buttonIndex] = raw !== 0
         }
       }
     } else if (field.kind === 'axis') {
@@ -489,10 +474,7 @@ export async function requestWebHIDDevices(): Promise<WebHIDDeviceInfo[]> {
   }
 
   const devices = await hid.requestDevice({ filters: [] })
-  for (const device of devices) {
-    await registerDevice(device)
-  }
-
+  for (const device of devices) await registerDevice(device)
   return getWebHIDDevices()
 }
 
@@ -512,13 +494,39 @@ export function getWebHIDDevices(): WebHIDDeviceInfo[] {
 }
 
 export function getWebHIDSnapshots(): JoystickSnapshot[] {
-  return [...managedDevices.values()].map(managed => ({
-    index: managed.joystickIndex,
-    id: `${managed.device.productName || 'HID Joystick'} (WebHID)`,
-    buttons: [...managed.buttons],
-    axes: [...managed.axes],
-    source: 'webhid'
-  }))
+  const gamepads = navigator.getGamepads()
+
+  return [...managedDevices.values()].map(managed => {
+    const gamepad = gamepads[managed.joystickIndex]
+
+    if (gamepad) {
+      // Reforger's existing mappings matched the browser Gamepad API. Keep that
+      // numbering for every control the Gamepad API can expose, then append the
+      // additional WebHID buttons that exist beyond its 32-button limit.
+      const buttons = gamepad.buttons.map(button => button.pressed)
+      for (let buttonIndex = buttons.length; buttonIndex < managed.buttons.length; buttonIndex++) {
+        buttons[buttonIndex] = managed.buttons[buttonIndex]
+      }
+
+      return {
+        index: managed.joystickIndex,
+        id: `${managed.device.productName || gamepad.id} (Gamepad + WebHID Extended)`,
+        buttons,
+        axes: [...gamepad.axes],
+        source: 'webhid' as const
+      }
+    }
+
+    // If no Gamepad API counterpart exists, fall back to raw WebHID so the
+    // device remains usable instead of disappearing entirely.
+    return {
+      index: managed.joystickIndex,
+      id: `${managed.device.productName || 'HID Joystick'} (WebHID)`,
+      buttons: [...managed.buttons],
+      axes: [...managed.axes],
+      source: 'webhid' as const
+    }
+  })
 }
 
 export function setWebHIDJoystickIndex(key: string, joystickIndex: number): void {

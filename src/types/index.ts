@@ -27,14 +27,14 @@ export type ImportanceLevel = 'critical' | 'important' | 'optional';
 export interface Action {
   name: string;
   /** Action name written to the .conf when it differs from the unique UI name.
-   *  Lets two direction-split entries (e.g. Airplane_PitchUp / Airplane_PitchDown)
+   *  Lets two direction-split entries (e.g. PFC_PitchUp / PFC_PitchDown)
    *  merge into a single Action block with multiple sources. */
   confName?: string;
   /** Emitted as an InputFilterValue Multiplier on this entry's sources —
    *  used for the negative direction of full-range analog actions. */
   multiplier?: number;
   /** Strip the trailing +/- from detected axis bindings so the whole axis
-   *  feeds the action (absolute-axis actions like Airplane_ThrottleAxis). */
+   *  feeds the action (absolute-axis actions like PFC_ThrottleAxis). */
   rawAxis?: boolean;
   filterPreset: FilterPreset;
   hint: string;

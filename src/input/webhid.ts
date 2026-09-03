@@ -169,28 +169,27 @@ function normalizeAxis(value: number, minimum: number, maximum: number, hasNull:
 }
 
 function getTopLevelReports(device: HIDDeviceLike): HIDReportLike[] {
-  const candidates = new Map<number, HIDReportLike>()
+  const reportsById = new Map<number, HIDReportLike>()
 
+  // WebHID exposes each top-level collection as a flattened view of the items
+  // inside that collection. If an interface has multiple top-level collections
+  // sharing a report ID, concatenate them in descriptor order so bit offsets
+  // still line up with the complete input report.
   for (const collection of device.collections ?? []) {
     for (const report of collection.inputReports ?? []) {
-      const totalBits = report.items.reduce(
-        (sum, item) => sum + (item.reportSize * item.reportCount),
-        0
-      )
-      const current = candidates.get(report.reportId)
-      const currentBits = current
-        ? current.items.reduce((sum, item) => sum + (item.reportSize * item.reportCount), 0)
-        : -1
-
-      // A top-level report is a flattened view. Keep the largest descriptor if
-      // the same report ID appears in more than one collection.
-      if (!current || totalBits > currentBits) {
-        candidates.set(report.reportId, report)
+      const current = reportsById.get(report.reportId)
+      if (current) {
+        current.items.push(...report.items)
+      } else {
+        reportsById.set(report.reportId, {
+          reportId: report.reportId,
+          items: [...report.items]
+        })
       }
     }
   }
 
-  return [...candidates.values()]
+  return [...reportsById.values()]
 }
 
 function parseReports(device: HIDDeviceLike): {

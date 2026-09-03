@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { Action, AppState, GamepadState } from './types'
+import {
+  closeWebHIDDevices,
+  getWebHIDDevices,
+  getWebHIDSnapshots,
+  initializeWebHID,
+  isWebHIDSupported,
+  requestWebHIDDevices,
+  setWebHIDJoystickIndex,
+  type JoystickSnapshot,
+  type WebHIDDeviceInfo
+} from './input/webhid'
 
 // Google Analytics gtag declaration
 declare global {
@@ -158,6 +169,31 @@ interface GamepadVisualization {
 }
 
 const gamepadVisualizations = ref<GamepadVisualization[]>([])
+const webHIDSupported = ref(false)
+const webHIDDevices = ref<WebHIDDeviceInfo[]>([])
+const webHIDError = ref<string | null>(null)
+
+function refreshWebHIDDevices() {
+  webHIDDevices.value = getWebHIDDevices()
+}
+
+async function connectWebHID() {
+  webHIDError.value = null
+  try {
+    await requestWebHIDDevices()
+    refreshWebHIDDevices()
+    resetGamepadBaseline()
+  } catch (error) {
+    webHIDError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function changeWebHIDJoystickIndex(key: string, event: Event) {
+  const select = event.target as HTMLSelectElement
+  setWebHIDJoystickIndex(key, Number.parseInt(select.value, 10))
+  refreshWebHIDDevices()
+  resetGamepadBaseline()
+}
 
 // Git commit hash injected at build time
 const gitHash = __GIT_HASH__
@@ -265,17 +301,44 @@ function describeInput(input: string): string {
   }
 }
 
-function resetGamepadBaseline() {
+function snapshotToGamepadState(snapshot: JoystickSnapshot): GamepadState {
+  return {
+    buttons: snapshot.buttons.map(pressed => ({ pressed })),
+    axes: [...snapshot.axes]
+  }
+}
+
+function gamepadToSnapshot(gamepad: Gamepad): JoystickSnapshot {
+  return {
+    index: gamepad.index,
+    id: gamepad.id,
+    buttons: gamepad.buttons.map(button => button.pressed),
+    axes: [...gamepad.axes],
+    source: 'gamepad'
+  }
+}
+
+function getActiveJoystickSnapshots(): JoystickSnapshot[] {
+  const webHIDSnapshots = getWebHIDSnapshots()
+  const webHIDIndices = new Set(webHIDSnapshots.map(snapshot => snapshot.index))
+  const snapshots = [...webHIDSnapshots]
+
   const gamepads = navigator.getGamepads()
-  for (let i = 0; i < gamepads.length; i++) {
-    const gamepad = gamepads[i]
-    if (gamepad) {
-      const stateSnapshot: GamepadState = {
-        buttons: gamepad.buttons.map(b => ({ pressed: b.pressed })),
-        axes: [...gamepad.axes]
-      }
-      state.previousGamepadState[i] = { ...stateSnapshot }
-      state.baselineGamepadState[i] = { ...stateSnapshot }
+  for (const gamepad of gamepads) {
+    if (!gamepad || webHIDIndices.has(gamepad.index)) continue
+    snapshots.push(gamepadToSnapshot(gamepad))
+  }
+
+  return snapshots.sort((a, b) => a.index - b.index)
+}
+
+function resetGamepadBaseline() {
+  for (const snapshot of getActiveJoystickSnapshots()) {
+    const stateSnapshot = snapshotToGamepadState(snapshot)
+    state.previousGamepadState[snapshot.index] = stateSnapshot
+    state.baselineGamepadState[snapshot.index] = {
+      buttons: stateSnapshot.buttons.map(button => ({ ...button })),
+      axes: [...stateSnapshot.axes]
     }
   }
 }
@@ -482,7 +545,7 @@ function handleTestModeInput(input: string) {
   testModeMatchingActions.value = findActionsByInput(input)
 }
 
-function detectTestModeInput(gamepad: Gamepad, gamepadIndex: number) {
+function detectTestModeInput(gamepad: { buttons: { pressed: boolean }[]; axes: number[] }, gamepadIndex: number) {
   if (state.inputCooldown) return
 
   if (!state.previousGamepadState[gamepadIndex]) {
@@ -627,7 +690,7 @@ function assignInput(input: string) {
   }
 }
 
-function detectInput(gamepad: Gamepad, gamepadIndex: number) {
+function detectInput(gamepad: { buttons: { pressed: boolean }[]; axes: number[] }, gamepadIndex: number) {
   if (state.inputCooldown) return
 
   if (!state.previousGamepadState[gamepadIndex]) {
@@ -717,67 +780,58 @@ function detectInput(gamepad: Gamepad, gamepadIndex: number) {
   }
 }
 
-function updateVisualizations(gamepads: (Gamepad | null)[]) {
-  const visualizations: GamepadVisualization[] = []
-
-  for (let i = 0; i < gamepads.length; i++) {
-    const gamepad = gamepads[i]
-    if (gamepad) {
-      visualizations.push({
-        index: gamepad.index,
-        name: gamepad.id,
-        axes: gamepad.axes.map((rawValue, axisIndex) =>
-          normalizeAxisValue(gamepad.index, axisIndex, rawValue)
-        ),
-        buttons: gamepad.buttons.map(b => b.pressed)
-      })
-    }
-  }
-
-  gamepadVisualizations.value = visualizations
+function updateVisualizations(snapshots: JoystickSnapshot[]) {
+  gamepadVisualizations.value = snapshots.map(snapshot => ({
+    index: snapshot.index,
+    name: snapshot.id,
+    axes: snapshot.axes.map((rawValue, axisIndex) =>
+      normalizeAxisValue(snapshot.index, axisIndex, rawValue)
+    ),
+    buttons: [...snapshot.buttons]
+  }))
 }
 
 let animationFrameId: number | null = null
 
 function pollGamepads() {
-  const gamepads = navigator.getGamepads()
-  let hasGamepads = false
+  const snapshots = getActiveJoystickSnapshots()
+  const connectedIndices = new Set<number>()
 
-  for (let i = 0; i < gamepads.length; i++) {
-    const gamepad = gamepads[i]
-    if (gamepad) {
-      hasGamepads = true
+  for (const snapshot of snapshots) {
+    connectedIndices.add(snapshot.index)
+    state.connectedGamepads[snapshot.index] = {
+      id: snapshot.id,
+      index: snapshot.index
+    }
 
-      if (!state.connectedGamepads[i]) {
-        state.connectedGamepads[i] = {
-          id: gamepad.id,
-          index: i
-        }
-      }
+    for (let axisIndex = 0; axisIndex < snapshot.axes.length; axisIndex++) {
+      updateAxisCalibration(snapshot.index, axisIndex, snapshot.axes[axisIndex])
+    }
 
-      // Update calibration data for all axes (always, even when not configuring)
-      for (let axisIndex = 0; axisIndex < gamepad.axes.length; axisIndex++) {
-        updateAxisCalibration(i, axisIndex, gamepad.axes[axisIndex])
-      }
+    const inputState = {
+      buttons: snapshot.buttons.map(pressed => ({ pressed })),
+      axes: snapshot.axes
+    }
 
-      if (state.configuring && state.currentActionIndex >= 0) {
-        detectInput(gamepad, i)
-      }
+    if (state.configuring && state.currentActionIndex >= 0) {
+      detectInput(inputState, snapshot.index)
+    }
 
-      // Test mode input detection
-      if (testModeEnabled.value) {
-        detectTestModeInput(gamepad, i)
-      }
+    if (testModeEnabled.value) {
+      detectTestModeInput(inputState, snapshot.index)
     }
   }
 
-  if (!hasGamepads && Object.keys(state.connectedGamepads).length > 0) {
-    state.connectedGamepads = {}
+  for (const key of Object.keys(state.connectedGamepads)) {
+    const index = Number.parseInt(key, 10)
+    if (!connectedIndices.has(index)) {
+      delete state.connectedGamepads[index]
+      delete state.previousGamepadState[index]
+      delete state.baselineGamepadState[index]
+    }
   }
 
-  // Update visualizations for all connected gamepads
-  updateVisualizations(gamepads)
-
+  updateVisualizations(snapshots)
   animationFrameId = requestAnimationFrame(pollGamepads)
 }
 
@@ -1033,8 +1087,23 @@ function declineCookies() {
 }
 
 // Lifecycle
-onMounted(() => {
+onMounted(async () => {
   document.addEventListener('keydown', handleKeyDown)
+  webHIDSupported.value = isWebHIDSupported()
+
+  if (webHIDSupported.value) {
+    try {
+      await initializeWebHID(() => {
+        refreshWebHIDDevices()
+        resetGamepadBaseline()
+      })
+      refreshWebHIDDevices()
+    } catch (error) {
+      webHIDError.value = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  resetGamepadBaseline()
   pollGamepads()
   checkCookieConsent()
 })
@@ -1044,6 +1113,7 @@ onUnmounted(() => {
   if (animationFrameId !== null) {
     cancelAnimationFrame(animationFrameId)
   }
+  void closeWebHIDDevices()
 })
 </script>
 
@@ -1233,9 +1303,39 @@ onUnmounted(() => {
     <div class="status-section">
       <div class="joystick-status">
         <h2>Connected Joysticks</h2>
+
+        <div class="webhid-controls">
+          <button v-if="webHIDSupported" @click="connectWebHID" class="btn btn-primary">
+            Connect HOTAS / Joystick with WebHID
+          </button>
+          <p v-else class="no-joysticks">
+            WebHID is unavailable. The configurator is using the standard Gamepad API fallback.
+          </p>
+          <p v-if="webHIDError" class="no-joysticks">{{ webHIDError }}</p>
+        </div>
+
+        <div v-if="webHIDDevices.length > 0" class="webhid-device-list">
+          <div v-for="device in webHIDDevices" :key="device.key" class="joystick-item">
+            <div>
+              <div class="joystick-name">{{ device.name }}</div>
+              <div class="joystick-id">
+                WebHID · {{ device.buttonCount }} buttons · {{ device.axisCount }} axes
+              </div>
+            </div>
+            <label class="joystick-id">
+              Reforger index
+              <select :value="device.joystickIndex" @change="changeWebHIDJoystickIndex(device.key, $event)">
+                <option v-for="index in 16" :key="index - 1" :value="index - 1">
+                  joystick{{ index - 1 }}
+                </option>
+              </select>
+            </label>
+          </div>
+        </div>
+
         <div id="joystick-list">
           <p v-if="Object.keys(state.connectedGamepads).length === 0" class="no-joysticks">
-            No joysticks detected. Connect a joystick and press any button.
+            No joysticks detected. Connect a joystick with WebHID, or press a button to use the Gamepad API fallback.
           </p>
           <div v-for="gp in Object.values(state.connectedGamepads)" :key="gp.index" class="joystick-item">
             <div class="joystick-name">{{ gp.id }}</div>

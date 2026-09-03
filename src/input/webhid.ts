@@ -103,8 +103,8 @@ let deviceCounter = 0
 
 const GENERIC_DESKTOP_PAGE = 0x01
 const BUTTON_PAGE = 0x09
+const MAX_REFORGER_JOYSTICKS = 4
 
-// X, Y, Z, Rx, Ry, Rz, Slider, Dial, Wheel and Hat Switch.
 const AXIS_USAGES = new Set([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39])
 
 function getHID(): HIDLike | null {
@@ -190,8 +190,6 @@ function getTopLevelReports(device: HIDDeviceLike): HIDReportLike[] {
     }
   }
 
-  // Some HOTAS devices place additional button banks in nested collections.
-  // Walk the whole descriptor tree instead of only reading the top level.
   for (const collection of device.collections ?? []) {
     visitCollection(collection)
   }
@@ -278,20 +276,53 @@ function mappingStorageKey(device: HIDDeviceLike): string {
   return `webhid-index:${device.vendorId.toString(16)}:${device.productId.toString(16)}:${device.productName}`
 }
 
+function normalizeDeviceName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function matchingGamepadIndex(device: HIDDeviceLike): number | null {
+  const deviceName = normalizeDeviceName(device.productName || '')
+  const vendorHex = device.vendorId.toString(16).padStart(4, '0').toLowerCase()
+  const productHex = device.productId.toString(16).padStart(4, '0').toLowerCase()
+
+  for (const gamepad of navigator.getGamepads()) {
+    if (!gamepad || gamepad.index >= MAX_REFORGER_JOYSTICKS) continue
+
+    const id = gamepad.id.toLowerCase()
+    const normalizedId = normalizeDeviceName(gamepad.id)
+    const nameMatches = deviceName.length >= 4 && (normalizedId.includes(deviceName) || deviceName.includes(normalizedId))
+    const vidPidMatches = (
+      (id.includes(`vendor: ${vendorHex}`) && id.includes(`product: ${productHex}`)) ||
+      (id.includes(`vid_${vendorHex}`) && id.includes(`pid_${productHex}`)) ||
+      (id.includes(vendorHex) && id.includes(productHex))
+    )
+
+    if (nameMatches || vidPidMatches) return gamepad.index
+  }
+
+  return null
+}
+
 function firstFreeJoystickIndex(): number {
   const used = new Set([...managedDevices.values()].map(device => device.joystickIndex))
-  for (let index = 0; index < 16; index++) {
+  for (let index = 0; index < MAX_REFORGER_JOYSTICKS; index++) {
     if (!used.has(index)) return index
   }
-  return managedDevices.size
+  return 0
 }
 
 function loadJoystickIndex(device: HIDDeviceLike): number {
+  const matchedIndex = matchingGamepadIndex(device)
+  if (matchedIndex !== null) {
+    saveJoystickIndex(device, matchedIndex)
+    return matchedIndex
+  }
+
   try {
     const saved = localStorage.getItem(mappingStorageKey(device))
     if (saved !== null) {
       const parsed = Number.parseInt(saved, 10)
-      if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 15) return parsed
+      if (Number.isInteger(parsed) && parsed >= 0 && parsed < MAX_REFORGER_JOYSTICKS) return parsed
     }
   } catch {
     // localStorage may be unavailable in private/restricted contexts.
@@ -494,7 +525,7 @@ export function setWebHIDJoystickIndex(key: string, joystickIndex: number): void
   const managed = managedDevices.get(key)
   if (!managed) return
 
-  const clampedIndex = Math.min(15, Math.max(0, Math.trunc(joystickIndex)))
+  const clampedIndex = Math.min(MAX_REFORGER_JOYSTICKS - 1, Math.max(0, Math.trunc(joystickIndex)))
   managed.joystickIndex = clampedIndex
   saveJoystickIndex(managed.device, clampedIndex)
   changeListener?.()

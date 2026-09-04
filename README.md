@@ -76,7 +76,7 @@ WebHID requires a Chromium-based browser such as Chrome or Edge and a secure HTT
 
 ### Fixed-Wing Aircraft Actions
 
-Fixed-wing aircraft support is enabled by default and can be toggled from the Actions section.
+Fixed-wing aircraft support is available but disabled by default. Enable it from the Actions section when you need the PFC/flight-core bindings.
 
 Supported PFC/flight-core actions include:
 

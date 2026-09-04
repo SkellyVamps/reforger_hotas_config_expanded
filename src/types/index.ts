@@ -26,6 +26,13 @@ export type ImportanceLevel = 'critical' | 'important' | 'optional';
 
 export interface Action {
   name: string;
+  /** Action name written to the .conf when it differs from the unique UI name.
+   * Lets direction-split aircraft entries merge into a single game action. */
+  confName?: string;
+  /** Optional InputFilterValue multiplier for a binding source. */
+  multiplier?: number;
+  /** Strip a trailing +/- from a detected axis so the whole axis is emitted. */
+  rawAxis?: boolean;
   filterPreset: FilterPreset;
   hint: string;
   hardware: HardwareType;

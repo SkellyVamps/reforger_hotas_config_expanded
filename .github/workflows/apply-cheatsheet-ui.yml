@@ -31,7 +31,7 @@ jobs:
         run: python3 scripts/add_cheatsheet_ui.py
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Validate build
         run: npm run build

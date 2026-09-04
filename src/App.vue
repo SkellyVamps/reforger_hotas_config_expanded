@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { Action, AppState, GamepadState } from './types'
+import { downloadCheatSheet } from './cheatsheet'
 import {
   closeWebHIDDevices,
   getWebHIDDevices,
@@ -1427,6 +1428,9 @@ onUnmounted(() => {
         <button @click="startConfiguration" :disabled="state.configuring" class="btn btn-primary">Start Configuring</button>
         <button @click="downloadConfig" :disabled="configuredCount === 0" class="btn btn-success" :class="{ 'btn-pulse': isConfigurationComplete }">
           {{ isConfigurationComplete ? '✓ Download Your Config File' : 'Download Config' }}
+        </button>
+        <button @click="downloadCheatSheet(state.actions, state.connectedGamepads)" :disabled="configuredCount === 0" class="btn btn-secondary">
+          Download Cheat Sheet
         </button>
         <button @click="startTestMode" :disabled="configuredCount === 0" class="btn btn-test">
           Test Bindings

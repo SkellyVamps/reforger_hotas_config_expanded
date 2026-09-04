@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts } from 'pdf-lib'
+import { PDFDocument, StandardFonts, type PDFFont, type PDFPage, rgb } from 'pdf-lib'
 import type { Action, ConnectedGamepad } from './types'
 
 type SolRSide = 'L' | 'R'
@@ -108,32 +108,6 @@ function combineLabels(labels: string[]): string {
   return compactDirectionalGroups(labels).map(compactGroupText).join(' / ')
 }
 
-function fieldDisplayText(labels: string[]): string {
-  const groups = compactDirectionalGroups(labels)
-  if (groups.length === 0) return ''
-
-  // When multiple systems share a control, keep each directional family on its
-  // own line rather than shrinking one very long line. The slash is retained so
-  // the flattened text still reads naturally, e.g.:
-  // Helicopter Cyclic Forward / Back /
-  // Turret Aim Up / Down
-  if (groups.length > 1) return groups.map(compactGroupText).join(' /\n')
-
-  const group = groups[0]
-  const text = compactGroupText(group)
-  if (text.length <= 24 || group.plain !== null) return text
-
-  // A single long directional family gets two lines without repeating its base.
-  return `${group.base}\n${group.directions.join(' / ')}`
-}
-
-function fieldFontSize(text: string): number {
-  const lines = text.split('\n')
-  const longest = Math.max(...lines.map(line => line.length), 0)
-  let size = longest <= 18 ? 8 : longest <= 24 ? 7 : longest <= 32 ? 6 : longest <= 40 ? 5.25 : 4.5
-  if (lines.length > 1) size = Math.max(4.5, size - 0.5)
-  return size
-}
 
 function collectFieldValues(actions: Action[], connectedGamepads: Record<number, ConnectedGamepad>): FieldValues {
   const sideByJoystick = getSolRSideByJoystick(connectedGamepads)
@@ -214,6 +188,145 @@ function resolveTemplateFieldNames(pdf: PDFDocument): Map<string, string> {
   return resolved
 }
 
+interface DetailEntry {
+  control: string
+  label: string
+}
+
+function detailControlLabel(control: string): string {
+  const match = control.match(/^(button|axis)(\d+)$/)
+  if (!match) return control
+  return `${match[1] === 'button' ? 'Button' : 'Axis'} ${match[2]}`
+}
+
+function detailEntriesForSide(fieldValues: FieldValues, side: SolRSide): DetailEntry[] {
+  const prefix = `Sol-R [${side}] `
+  return Object.entries(fieldValues)
+    .filter(([fieldName]) => fieldName.startsWith(prefix))
+    .map(([fieldName, labels]) => ({
+      control: fieldName.slice(prefix.length),
+      label: combineLabels(labels)
+    }))
+    .sort((a, b) => {
+      const am = a.control.match(/^(button|axis)(\d+)$/)
+      const bm = b.control.match(/^(button|axis)(\d+)$/)
+      if (!am || !bm) return a.control.localeCompare(b.control)
+      const at = am[1] === 'button' ? 0 : 1
+      const bt = bm[1] === 'button' ? 0 : 1
+      if (at !== bt) return at - bt
+      return Number.parseInt(am[2], 10) - Number.parseInt(bm[2], 10)
+    })
+}
+
+function wrapDetailText(font: PDFFont, text: string, size: number, maxWidth: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let line = ''
+
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word
+    if (!line || font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      line = candidate
+    } else {
+      lines.push(line)
+      line = word
+    }
+  }
+  if (line) lines.push(line)
+  return lines.length > 0 ? lines : ['']
+}
+
+function drawDetailEntry(
+  page: PDFPage,
+  font: PDFFont,
+  entry: DetailEntry,
+  x: number,
+  y: number,
+  width: number,
+  rowHeight: number
+) {
+  page.drawRectangle({
+    x,
+    y: y - 4,
+    width,
+    height: rowHeight - 3,
+    borderWidth: 0.5,
+    borderColor: rgb(0.72, 0.76, 0.80),
+    color: rgb(0.98, 0.985, 0.99)
+  })
+
+  page.drawText(detailControlLabel(entry.control), {
+    x: x + 7,
+    y: y + 8,
+    size: 9,
+    font,
+    color: rgb(0.08, 0.12, 0.18)
+  })
+
+  const actionX = x + 67
+  const actionWidth = width - 74
+  const size = 8.5
+  const lines = wrapDetailText(font, entry.label, size, actionWidth).slice(0, 2)
+  const startY = lines.length > 1 ? y + 13 : y + 8
+  lines.forEach((line, index) => {
+    page.drawText(line, {
+      x: actionX,
+      y: startY - index * 10,
+      size,
+      font,
+      color: rgb(0.02, 0.03, 0.05)
+    })
+  })
+}
+
+function addDetailedBindingPages(pdf: PDFDocument, fieldValues: FieldValues, font: PDFFont) {
+  const pageWidth = 612
+  const pageHeight = 792
+  const margin = 36
+  const columnGap = 18
+  const columnWidth = (pageWidth - margin * 2 - columnGap) / 2
+  const rowHeight = 29
+  const rowsPerColumn = 22
+  const entriesPerPage = rowsPerColumn * 2
+
+  for (const side of ['R', 'L'] as const) {
+    const entries = detailEntriesForSide(fieldValues, side)
+    if (entries.length === 0) continue
+
+    for (let offset = 0; offset < entries.length; offset += entriesPerPage) {
+      const chunk = entries.slice(offset, offset + entriesPerPage)
+      const page = pdf.addPage([pageWidth, pageHeight])
+      const sideName = side === 'R' ? 'Right Stick' : 'Left Stick'
+      const pageNumber = Math.floor(offset / entriesPerPage) + 1
+      const totalPages = Math.ceil(entries.length / entriesPerPage)
+      const suffix = totalPages > 1 ? ` (${pageNumber}/${totalPages})` : ''
+
+      page.drawText(`Arma Reforger Sol-R - ${sideName} Bindings${suffix}`, {
+        x: margin,
+        y: pageHeight - 52,
+        size: 20,
+        font,
+        color: rgb(0.03, 0.08, 0.14)
+      })
+      page.drawText('Full binding reference for long labels that do not fit cleanly in the physical-layout callouts.', {
+        x: margin,
+        y: pageHeight - 75,
+        size: 9,
+        font,
+        color: rgb(0.30, 0.34, 0.39)
+      })
+
+      chunk.forEach((entry, index) => {
+        const column = Math.floor(index / rowsPerColumn)
+        const row = index % rowsPerColumn
+        const x = margin + column * (columnWidth + columnGap)
+        const y = pageHeight - 112 - row * rowHeight
+        drawDetailEntry(page, font, entry, x, y, columnWidth, rowHeight)
+      })
+    }
+  }
+}
+
 function downloadBytes(bytes: Uint8Array, filename: string) {
   const blob = new Blob([bytes], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
@@ -241,17 +354,14 @@ export async function downloadSolRPdfCheatSheet(
   for (const [semanticName, labels] of Object.entries(fieldValues)) {
     const sourceName = resolved.get(semanticName)
     if (!sourceName) continue
-    const field = form.getTextField(sourceName)
-    const text = fieldDisplayText(labels)
-    if (text.includes('\n')) field.enableMultiline()
-    field.setFontSize(fieldFontSize(text))
-    field.setText(text)
+    form.getTextField(sourceName).setText(combineLabels(labels))
   }
 
   // Do not flatten, rename, reposition, or otherwise alter the template. Only
   // populate the existing text fields and refresh their appearances.
   const font = await pdf.embedFont(StandardFonts.Helvetica)
   form.updateFieldAppearances(font)
+  addDetailedBindingPages(pdf, fieldValues, font)
 
   const output = await pdf.save()
   downloadBytes(output, 'Arma Reforger Sol-R.pdf')

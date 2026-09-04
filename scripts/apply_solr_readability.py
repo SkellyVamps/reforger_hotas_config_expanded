@@ -77,7 +77,7 @@ function fieldFontSize(text: string): number {
 
 src, count = re.subn(
     r"function combineLabels\(labels: string\[\]\): string \{.*?\n\}\n\nfunction collectFieldValues",
-    new_combine + "\nfunction collectFieldValues",
+    lambda _: new_combine + "\nfunction collectFieldValues",
     src,
     count=1,
     flags=re.S,

@@ -1,5 +1,5 @@
 import type { Action, ConnectedGamepad } from './types'
-import { downloadSolRPdfCheatSheet, hasSolRDevices } from './solrPdfCheatsheet'
+import { tryDownloadSolRCheatSheet } from './solrCheatsheet'
 
 interface CheatSheetBinding {
   joystickIndex: number
@@ -202,6 +202,7 @@ function drawSheet(actions: Action[], connectedGamepads: Record<number, Connecte
   ctx.fillStyle = background
   ctx.fillRect(0, 0, WIDTH, HEIGHT)
 
+  // Subtle star-field effect inspired by common HOTAS reference sheets.
   ctx.fillStyle = 'rgba(255,255,255,0.34)'
   for (let i = 0; i < 110; i++) {
     const sx = (i * 173) % WIDTH
@@ -265,14 +266,11 @@ function safeFilenamePart(value: string): string {
     .slice(0, 60)
 }
 
-export async function downloadCheatSheet(
+export function downloadCheatSheet(
   actions: Action[],
   connectedGamepads: Record<number, ConnectedGamepad>
 ) {
-  if (hasSolRDevices(connectedGamepads)) {
-    await downloadSolRPdfCheatSheet(actions, connectedGamepads)
-    return
-  }
+  if (tryDownloadSolRCheatSheet(actions, connectedGamepads)) return
 
   const canvas = drawSheet(actions, connectedGamepads)
   const devices = Object.values(connectedGamepads)

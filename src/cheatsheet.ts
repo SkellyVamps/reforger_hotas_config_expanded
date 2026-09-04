@@ -28,7 +28,7 @@ function readableActionName(name: string): string {
 }
 
 function controlLabel(binding: CheatSheetBinding): string {
-  if (binding.type === 'button') return `Button ${binding.controlIndex}`
+  if (binding.type === 'button') return `Button ${binding.controlIndex+1}`
   return `Axis ${binding.controlIndex}${binding.direction}`
 }
 

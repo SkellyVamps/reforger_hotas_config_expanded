@@ -1,0 +1,63 @@
+name: Validate Sol-R PDF Cheat Sheet
+
+on:
+  push:
+    branches:
+      - feature/sol-r-pdf-template
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature/sol-r-pdf-template
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and update lockfile
+        run: npm install --no-audit --no-fund
+
+      - name: Download Sol-R2 PDF template
+        run: |
+          mkdir -p public
+          curl -L --fail --retry 3 \
+            "https://www.dropbox.com/scl/fi/83b8mt28h3ssy7nl7herm/Elite-Dangerous-Thrustmaster-Sol-R2-Template.pdf?rlkey=j8mtb9j4wly57jd5ejy8q0ni9&dl=1" \
+            -o public/solr2-template.pdf
+          test "$(head -c 4 public/solr2-template.pdf)" = "%PDF"
+
+      - name: Validate PDF form
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import { PDFDocument } from 'pdf-lib'
+          const bytes = fs.readFileSync('public/solr2-template.pdf')
+          const pdf = await PDFDocument.load(bytes)
+          const fields = pdf.getForm().getFields()
+          if (fields.length < 100) throw new Error(`Expected at least 100 form fields, got ${fields.length}`)
+          console.log(`Template form fields: ${fields.length}`)
+          NODE
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit lockfile
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "package-lock.json already current"
+          else
+            git commit -m "Update lockfile for PDF form support"
+            git push origin HEAD:feature/sol-r-pdf-template
+          fi

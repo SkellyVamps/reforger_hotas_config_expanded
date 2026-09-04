@@ -66,25 +66,73 @@ export function hasSolRDevices(connectedGamepads: Record<number, ConnectedGamepa
   return Object.values(connectedGamepads).some(device => isSolRDeviceName(device.id))
 }
 
-function combineLabels(labels: string[]): string {
-  const unique = [...new Set(labels.filter(Boolean))]
-  if (unique.length <= 1) return unique[0] ?? ''
+interface CompactDirectionalGroup {
+  base: string
+  directions: string[]
+  plain: string | null
+}
 
+function compactDirectionalGroups(labels: string[]): CompactDirectionalGroup[] {
+  const unique = [...new Set(labels.filter(Boolean))]
   const directionalWords = new Set(['Left','Right','Up','Down','Forward','Back','Increase','Decrease'])
-  const parsed = unique.map(label => {
+  const groups: CompactDirectionalGroup[] = []
+
+  for (const label of unique) {
     const words = label.split(/\s+/)
     const last = words[words.length - 1]
-    return {
-      direction: directionalWords.has(last) ? last : null,
-      base: directionalWords.has(last) ? words.slice(0, -1).join(' ') : label
-    }
-  })
+    const isDirectional = directionalWords.has(last)
+    const base = isDirectional ? words.slice(0, -1).join(' ') : label
 
-  if (parsed.every(item => item.direction && item.base === parsed[0].base)) {
-    return `${parsed[0].base} ${parsed.map(item => item.direction).join('/')}`
+    if (!isDirectional) {
+      groups.push({ base: label, directions: [], plain: label })
+      continue
+    }
+
+    const existing = groups.find(group => group.plain === null && group.base === base)
+    if (existing) {
+      if (!existing.directions.includes(last)) existing.directions.push(last)
+    } else {
+      groups.push({ base, directions: [last], plain: null })
+    }
   }
 
-  return unique.join(' / ')
+  return groups
+}
+
+function compactGroupText(group: CompactDirectionalGroup): string {
+  if (group.plain !== null) return group.plain
+  return `${group.base} ${group.directions.join(' / ')}`
+}
+
+function combineLabels(labels: string[]): string {
+  return compactDirectionalGroups(labels).map(compactGroupText).join(' / ')
+}
+
+function fieldDisplayText(labels: string[]): string {
+  const groups = compactDirectionalGroups(labels)
+  if (groups.length === 0) return ''
+
+  // When multiple systems share a control, keep each directional family on its
+  // own line rather than shrinking one very long line. The slash is retained so
+  // the flattened text still reads naturally, e.g.:
+  // Helicopter Cyclic Forward / Back /
+  // Turret Aim Up / Down
+  if (groups.length > 1) return groups.map(compactGroupText).join(' /\n')
+
+  const group = groups[0]
+  const text = compactGroupText(group)
+  if (text.length <= 24 || group.plain !== null) return text
+
+  // A single long directional family gets two lines without repeating its base.
+  return `${group.base}\n${group.directions.join(' / ')}`
+}
+
+function fieldFontSize(text: string): number {
+  const lines = text.split('\n')
+  const longest = Math.max(...lines.map(line => line.length), 0)
+  let size = longest <= 18 ? 8 : longest <= 24 ? 7 : longest <= 32 ? 6 : longest <= 40 ? 5.25 : 4.5
+  if (lines.length > 1) size = Math.max(4.5, size - 0.5)
+  return size
 }
 
 function collectFieldValues(actions: Action[], connectedGamepads: Record<number, ConnectedGamepad>): FieldValues {
@@ -115,7 +163,7 @@ function collectFieldValues(actions: Action[], connectedGamepads: Record<number,
 }
 
 async function loadTemplateBytes(): Promise<Uint8Array> {
-  const response = await fetch(`${import.meta.env.BASE_URL}solr2-template.pdf`)
+  const response = await fetch(`${import.meta.env.BASE_URL}Arma%20Reforger%20Sol-R.pdf`)
   if (!response.ok) throw new Error('Unable to load the Sol-R2 PDF template.')
   return new Uint8Array(await response.arrayBuffer())
 }
@@ -193,7 +241,11 @@ export async function downloadSolRPdfCheatSheet(
   for (const [semanticName, labels] of Object.entries(fieldValues)) {
     const sourceName = resolved.get(semanticName)
     if (!sourceName) continue
-    form.getTextField(sourceName).setText(combineLabels(labels))
+    const field = form.getTextField(sourceName)
+    const text = fieldDisplayText(labels)
+    if (text.includes('\n')) field.enableMultiline()
+    field.setFontSize(fieldFontSize(text))
+    field.setText(text)
   }
 
   // Do not flatten, rename, reposition, or otherwise alter the template. Only
@@ -202,5 +254,5 @@ export async function downloadSolRPdfCheatSheet(
   form.updateFieldAppearances(font)
 
   const output = await pdf.save()
-  downloadBytes(output, 'Arma_Reforger_Thrustmaster_Sol-R2_Cheat_Sheet.pdf')
+  downloadBytes(output, 'Arma Reforger Sol-R.pdf')
 }

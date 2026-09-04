@@ -1,13 +1,22 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 import type { Action, ConnectedGamepad } from './types'
 
-const TEMPLATE_PART_COUNT = 12
-const TEMPLATE_PART_DIR = 'solr2-template'
-
 type SolRSide = 'L' | 'R'
+type Point = readonly [number, number]
 
 interface FieldValues {
   [fieldName: string]: string[]
+}
+
+// These are the centers of the renamed text fields in the user-provided Sol-R2
+// template. The deployed template has the same page/layout; matching by widget
+// position lets the app fill those exact boxes without altering the artwork.
+const FIELD_CENTERS: Record<string, Point> = {
+  'Game Title':[38.269,601.44],
+  'Sol-R [L] axis0':[263.455,201.741],'Sol-R [L] axis1':[275.611,202.208],'Sol-R [L] axis2':[509.611,219.974],'Sol-R [L] axis3':[67.091,299.923],'Sol-R [L] axis4':[54.935,299.689],'Sol-R [L] axis5':[288.001,201.974],
+  'Sol-R [L] button0':[360.469,61.013],'Sol-R [L] button1':[372.624,60.779],'Sol-R [L] button2':[316.286,110.805],'Sol-R [L] button3':[328.91,110.805],'Sol-R [L] button4':[412.831,50.494],'Sol-R [L] button5':[425.689,50.494],'Sol-R [L] button6':[437.844,50.26],'Sol-R [L] button7':[450.469,50.26],'Sol-R [L] button8':[496.053,98.416],'Sol-R [L] button9':[508.442,98.416],'Sol-R [L] button10':[521.066,98.416],'Sol-R [L] button11':[360.702,342.234],'Sol-R [L] button12':[372.858,342.234],'Sol-R [L] button13':[316.52,298.988],'Sol-R [L] button14':[328.676,298.988],'Sol-R [L] button15':[422.884,349.014],'Sol-R [L] button16':[410.494,349.014],'Sol-R [L] button17':[447.196,349.014],'Sol-R [L] button18':[435.273,349.014],'Sol-R [L] button19':[485.299,341.066],'Sol-R [L] button20':[497.923,340.832],'Sol-R [L] button21':[510.312,340.831],'Sol-R [L] button22':[522.702,340.831],'Sol-R [L] button23':[128.338,201.741],'Sol-R [L] button24':[140.728,201.741],'Sol-R [L] button25':[90.701,201.273],'Sol-R [L] button26':[78.546,200.805],'Sol-R [L] button27':[245.221,89.766],'Sol-R [L] button28':[79.714,299.923],'Sol-R [L] button29':[154.987,92.338],'Sol-R [L] button30':[130.208,67.792],'Sol-R [L] button31':[117.585,92.338],'Sol-R [L] button32':[130.208,124.831],'Sol-R [L] button33':[142.831,92.572],'Sol-R [L] button34':[201.273,91.169],'Sol-R [L] button35':[270.234,312.546],'Sol-R [L] button36':[245.222,312.78],'Sol-R [L] button37':[257.845,313.014],'Sol-R [L] button38':[201.273,312.546],'Sol-R [L] button39':[155.455,312.546],'Sol-R [L] button40':[130.208,288.234],'Sol-R [L] button41':[117.819,313.014],'Sol-R [L] button42':[130.208,345.508],'Sol-R [L] button43':[142.831,312.546],
+  'Sol-R [R] axis0':[335.053,594.469],'Sol-R [R] axis1':[347.209,594.936],'Sol-R [R] axis2':[581.208,612.702],'Sol-R [R] axis3':[138.688,692.65],'Sol-R [R] axis4':[126.532,692.417],'Sol-R [R] axis5':[359.598,594.702],
+  'Sol-R [R] button0':[432.065,453.741],'Sol-R [R] button1':[444.221,453.507],'Sol-R [R] button2':[387.884,503.533],'Sol-R [R] button3':[400.507,503.533],'Sol-R [R] button4':[484.43,443.221],'Sol-R [R] button5':[497.286,443.221],'Sol-R [R] button6':[509.442,442.988],'Sol-R [R] button7':[522.066,442.988],'Sol-R [R] button8':[567.65,491.143],'Sol-R [R] button9':[580.04,491.144],'Sol-R [R] button10':[592.663,491.144],'Sol-R [R] button11':[432.299,734.962],'Sol-R [R] button12':[444.455,734.962],'Sol-R [R] button13':[388.117,691.715],'Sol-R [R] button14':[400.273,691.715],'Sol-R [R] button15':[494.481,741.741],'Sol-R [R] button16':[482.092,741.741],'Sol-R [R] button17':[518.793,741.741],'Sol-R [R] button18':[506.871,741.741],'Sol-R [R] button19':[556.897,733.793],'Sol-R [R] button20':[569.52,733.56],'Sol-R [R] button21':[581.91,733.559],'Sol-R [R] button22':[594.299,733.559],'Sol-R [R] button23':[199.936,594.469],'Sol-R [R] button24':[212.325,594.469],'Sol-R [R] button25':[162.299,594.001],'Sol-R [R] button26':[150.144,593.534],'Sol-R [R] button27':[316.819,482.495],'Sol-R [R] button28':[151.312,692.65],'Sol-R [R] button29':[226.585,485.066],'Sol-R [R] button30':[201.805,460.521],'Sol-R [R] button31':[189.182,485.066],'Sol-R [R] button32':[201.806,517.559],'Sol-R [R] button33':[214.429,485.299],'Sol-R [R] button34':[272.87,483.897],'Sol-R [R] button35':[341.831,705.274],'Sol-R [R] button36':[316.818,705.508],'Sol-R [R] button37':[329.442,705.741],'Sol-R [R] button38':[272.87,705.274],'Sol-R [R] button39':[227.052,705.274],'Sol-R [R] button40':[201.806,680.962],'Sol-R [R] button41':[189.415,705.741],'Sol-R [R] button42':[201.805,738.235],'Sol-R [R] button43':[214.429,705.274]
 }
 
 function readableActionName(name: string): string {
@@ -30,9 +39,7 @@ function detectSide(name: string): SolRSide | null {
   return null
 }
 
-function getSolRSideByJoystick(
-  connectedGamepads: Record<number, ConnectedGamepad>
-): Map<number, SolRSide> {
+function getSolRSideByJoystick(connectedGamepads: Record<number, ConnectedGamepad>): Map<number, SolRSide> {
   const result = new Map<number, SolRSide>()
   const unresolved: number[] = []
 
@@ -45,8 +52,6 @@ function getSolRSideByJoystick(
       else unresolved.push(device.index)
     })
 
-  // Fallback for browsers/drivers that omit L/R from the product name.
-  // Prefer the first open side for the first unresolved device.
   const used = new Set(result.values())
   for (const index of unresolved) {
     const fallback: SolRSide = !used.has('R') ? 'R' : 'L'
@@ -61,34 +66,15 @@ export function hasSolRDevices(connectedGamepads: Record<number, ConnectedGamepa
   return Object.values(connectedGamepads).some(device => isSolRDeviceName(device.id))
 }
 
-function commonPrefixWords(labels: string[]): string[] {
-  if (labels.length === 0) return []
-  const split = labels.map(label => label.split(/\s+/))
-  const minLength = Math.min(...split.map(words => words.length))
-  const prefix: string[] = []
-
-  for (let i = 0; i < minLength; i++) {
-    const word = split[0][i]
-    if (split.every(words => words[i] === word)) prefix.push(word)
-    else break
-  }
-  return prefix
-}
-
 function combineLabels(labels: string[]): string {
   const unique = [...new Set(labels.filter(Boolean))]
   if (unique.length <= 1) return unique[0] ?? ''
 
-  const directionalWords = new Set([
-    'Left', 'Right', 'Up', 'Down', 'Forward', 'Back',
-    'Increase', 'Decrease'
-  ])
-
+  const directionalWords = new Set(['Left','Right','Up','Down','Forward','Back','Increase','Decrease'])
   const parsed = unique.map(label => {
     const words = label.split(/\s+/)
     const last = words[words.length - 1]
     return {
-      label,
       direction: directionalWords.has(last) ? last : null,
       base: directionalWords.has(last) ? words.slice(0, -1).join(' ') : label
     }
@@ -98,26 +84,15 @@ function combineLabels(labels: string[]): string {
     return `${parsed[0].base} ${parsed.map(item => item.direction).join('/')}`
   }
 
-  const prefix = commonPrefixWords(unique)
-  if (prefix.length > 0 && prefix.length < Math.min(...unique.map(label => label.split(/\s+/).length))) {
-    const prefixText = prefix.join(' ')
-    const suffixes = unique.map(label => label.split(/\s+/).slice(prefix.length).join(' '))
-    return `${prefixText} ${suffixes.join('/')}`
-  }
-
   return unique.join(' / ')
 }
 
-function collectFieldValues(
-  actions: Action[],
-  connectedGamepads: Record<number, ConnectedGamepad>
-): FieldValues {
+function collectFieldValues(actions: Action[], connectedGamepads: Record<number, ConnectedGamepad>): FieldValues {
   const sideByJoystick = getSolRSideByJoystick(connectedGamepads)
   const values: FieldValues = {}
 
   for (const action of actions) {
     const label = readableActionName(action.name)
-
     for (const rawBinding of action.bindings) {
       const match = rawBinding.match(/^joystick(\d+):(button|axis)(\d+)([+-])?$/)
       if (!match) continue
@@ -128,10 +103,8 @@ function collectFieldValues(
 
       const type = match[2]
       const controlIndex = Number.parseInt(match[3], 10)
-
-      // The PDF field names were manually mapped to the configurator output,
-      // so button indices are used exactly as-is. Axis +/- directions merge into
-      // one axis field, e.g. axis0- and axis0+ both populate "Sol-R [R] axis0".
+      // Exact configurator numbering: button0 -> button0. Axis direction is
+      // intentionally omitted so axis0+ and axis0- share one PDF field.
       const fieldName = `Sol-R [${side}] ${type}${controlIndex}`
       if (!values[fieldName]) values[fieldName] = []
       if (!values[fieldName].includes(label)) values[fieldName].push(label)
@@ -141,35 +114,56 @@ function collectFieldValues(
   return values
 }
 
-function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
-}
-
-async function decompressGzip(bytes: Uint8Array): Promise<Uint8Array> {
-  if (typeof DecompressionStream === 'undefined') {
-    throw new Error('This browser does not support the Sol-R PDF template decompressor.')
-  }
-
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
-  const buffer = await new Response(stream).arrayBuffer()
-  return new Uint8Array(buffer)
-}
-
 async function loadTemplateBytes(): Promise<Uint8Array> {
-  const parts = await Promise.all(
-    Array.from({ length: TEMPLATE_PART_COUNT }, async (_, index) => {
-      const filename = `part-${String(index).padStart(2, '0')}.b64`
-      const response = await fetch(`${import.meta.env.BASE_URL}${TEMPLATE_PART_DIR}/${filename}`)
-      if (!response.ok) throw new Error(`Unable to load Sol-R PDF template part ${index + 1}.`)
-      return response.text()
-    })
-  )
+  const response = await fetch(`${import.meta.env.BASE_URL}solr2-template.pdf`)
+  if (!response.ok) throw new Error('Unable to load the Sol-R2 PDF template.')
+  return new Uint8Array(await response.arrayBuffer())
+}
 
-  const compressed = base64ToBytes(parts.join('').replace(/\s+/g, ''))
-  return decompressGzip(compressed)
+interface WidgetLike {
+  getRectangle(): { x: number; y: number; width: number; height: number }
+}
+
+interface FieldWithWidgets {
+  getName(): string
+  acroField: { getWidgets(): WidgetLike[] }
+}
+
+function fieldCenter(field: FieldWithWidgets): Point | null {
+  const widget = field.acroField.getWidgets()[0]
+  if (!widget) return null
+  const rect = widget.getRectangle()
+  return [rect.x + rect.width / 2, rect.y + rect.height / 2]
+}
+
+function distance(a: Point, b: Point): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1])
+}
+
+function resolveTemplateFieldNames(pdf: PDFDocument): Map<string, string> {
+  const form = pdf.getForm()
+  const sourceFields = form.getFields()
+    .map(field => {
+      const candidate = field as unknown as FieldWithWidgets
+      const center = fieldCenter(candidate)
+      return center ? { name: field.getName(), center } : null
+    })
+    .filter((value): value is { name: string; center: Point } => value !== null)
+
+  const resolved = new Map<string, string>()
+  for (const [semanticName, targetCenter] of Object.entries(FIELD_CENTERS)) {
+    let nearest: { name: string; distance: number } | null = null
+    for (const source of sourceFields) {
+      const d = distance(targetCenter, source.center)
+      if (!nearest || d < nearest.distance) nearest = { name: source.name, distance: d }
+    }
+
+    // The renamed PDF and deployment template are the same layout. A generous
+    // tolerance protects against tiny producer/rounding differences while still
+    // preventing an unrelated field from being filled.
+    if (nearest && nearest.distance <= 4) resolved.set(semanticName, nearest.name)
+  }
+  return resolved
 }
 
 function downloadBytes(bytes: Uint8Array, filename: string) {
@@ -188,21 +182,22 @@ export async function downloadSolRPdfCheatSheet(
   actions: Action[],
   connectedGamepads: Record<number, ConnectedGamepad>
 ): Promise<void> {
-  const templateBytes = await loadTemplateBytes()
-  const pdf = await PDFDocument.load(templateBytes)
+  const pdf = await PDFDocument.load(await loadTemplateBytes())
   const form = pdf.getForm()
+  const resolved = resolveTemplateFieldNames(pdf)
   const fieldValues = collectFieldValues(actions, connectedGamepads)
-  const fieldsByName = new Map(form.getFields().map(field => [field.getName(), field]))
 
-  for (const [fieldName, labels] of Object.entries(fieldValues)) {
-    const field = fieldsByName.get(fieldName)
-    if (!field || field.constructor.name !== 'PDFTextField') continue
+  const gameTitleField = resolved.get('Game Title')
+  if (gameTitleField) form.getTextField(gameTitleField).setText('Arma Reforger')
 
-    form.getTextField(fieldName).setText(combineLabels(labels))
+  for (const [semanticName, labels] of Object.entries(fieldValues)) {
+    const sourceName = resolved.get(semanticName)
+    if (!sourceName) continue
+    form.getTextField(sourceName).setText(combineLabels(labels))
   }
 
-  // Keep the original PDF layout/form structure and update only text-field
-  // values/appearances so the supplied template remains the actual cheat sheet.
+  // Do not flatten, rename, reposition, or otherwise alter the template. Only
+  // populate the existing text fields and refresh their appearances.
   const font = await pdf.embedFont(StandardFonts.Helvetica)
   form.updateFieldAppearances(font)
 

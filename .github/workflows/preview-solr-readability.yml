@@ -56,7 +56,7 @@ jobs:
 
           const field = form.getTextField(best.name)
           field.enableMultiline()
-          field.setFontSize(5.5)
+          field.acroField.setDefaultAppearance('/Helv 5.5 Tf 0 0 0 rg')
           field.setText('Helicopter Cyclic Forward / Back /\nTurret Aim Up / Down')
           const font = await pdf.embedFont(StandardFonts.Helvetica)
           form.updateFieldAppearances(font)

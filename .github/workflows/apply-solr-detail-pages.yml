@@ -1,0 +1,56 @@
+name: Apply Sol-R Detail Pages
+
+on:
+  push:
+    branches:
+      - feature/solr-readability
+    paths:
+      - 'scripts/apply_solr_detail_pages.py'
+      - '.github/workflows/apply-solr-detail-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature/solr-readability
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply patch
+        run: python scripts/apply_solr_detail_pages.py
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prepare PDF template
+        run: |
+          mkdir -p public
+          curl -L --fail --retry 3 \
+            "https://www.dropbox.com/scl/fi/83b8mt28h3ssy7nl7herm/Elite-Dangerous-Thrustmaster-Sol-R2-Template.pdf?rlkey=j8mtb9j4wly57jd5ejy8q0ni9&dl=1" \
+            -o "public/Arma Reforger Sol-R.pdf"
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/solrPdfCheatsheet.ts
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Add readable Sol-R binding detail pages"
+            git push origin HEAD:feature/solr-readability
+          fi

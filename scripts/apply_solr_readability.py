@@ -1,3 +1,4 @@
+# Applies compact directional labels and readable PDF field formatting.
 from pathlib import Path
 import re
 

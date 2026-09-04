@@ -1,4 +1,5 @@
 import type { Action, ConnectedGamepad } from './types'
+import { tryDownloadSolRCheatSheet } from './solrCheatsheet'
 
 interface CheatSheetBinding {
   joystickIndex: number
@@ -269,6 +270,8 @@ export function downloadCheatSheet(
   actions: Action[],
   connectedGamepads: Record<number, ConnectedGamepad>
 ) {
+  if (tryDownloadSolRCheatSheet(actions, connectedGamepads)) return
+
   const canvas = drawSheet(actions, connectedGamepads)
   const devices = Object.values(connectedGamepads)
   const firstDevice = devices.length > 0 ? safeFilenamePart(devices[0].id) : 'HOTAS'

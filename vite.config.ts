@@ -7,6 +7,7 @@ const gitHash = execSync('git rev-parse --short HEAD').toString().trim()
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/reforger_hotas_config_expanded/',
   plugins: [vue()],
   build: {
     outDir: 'dist',

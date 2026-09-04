@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { Action, AppState, GamepadState } from './types'
+import {
+  closeWebHIDDevices,
+  getWebHIDDevices,
+  getWebHIDSnapshots,
+  initializeWebHID,
+  isWebHIDSupported,
+  requestWebHIDDevices,
+  setWebHIDJoystickIndex,
+  type JoystickSnapshot,
+  type WebHIDDeviceInfo
+} from './input/webhid'
 
 // Google Analytics gtag declaration
 declare global {
@@ -74,7 +85,39 @@ const WCS_ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'WCS_Armament_DeploySmoke', filterPreset: 'hold', hint: 'Deploy smoke (countermeasure)', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_RadarToggle', filterPreset: 'click', hint: 'Toggle radar', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_FireContinuousSmokeDispenser', filterPreset: 'hold', hint: 'Fire continuous smoke dispenser', hardware: 'button', importance: 'optional' },
-  { name: 'TurretWeaponNextRippleQuantity', filterPreset: 'click', hint: 'Cycle weapon ripple quantity', hardware: 'button', importance: 'optional' }
+  { name: 'TurretWeaponNextRippleQuantity', filterPreset: 'click', hint: 'Cycle weapon ripple quantity', hardware: 'button', importance: 'optional' },
+  { name: 'WCS_Armament_ConfirmLock', filterPreset: 'click', hint: 'Confirm missile lock-on (after activating the seeker)', hardware: 'button', importance: 'optional' }
+]
+
+// Fixed-wing aircraft actions (Propeller/Jet Flight Core mods: SU-25, SU-33, C-130, WW2 planes...)
+// Pitch/roll/yaw are single full-range analog actions in the game, so each direction is a
+// separate entry here that merges into one Action block at generation (confName), with the
+// negative direction carrying Multiplier -1.
+const AIRCRAFT_ACTIONS: Omit<Action, 'bindings'>[] = [
+  { name: 'PFC_PitchUp', confName: 'PFC_Pitch', filterPreset: 'back', hint: 'Pull stick back = nose up', hardware: 'stick', importance: 'critical' },
+  { name: 'PFC_PitchDown', confName: 'PFC_Pitch', filterPreset: 'forward', multiplier: -1, hint: 'Push stick forward = nose down', hardware: 'stick', importance: 'critical' },
+  { name: 'PFC_RollRight', confName: 'PFC_Roll', filterPreset: 'right', hint: 'Stick right = roll right', hardware: 'stick', importance: 'critical' },
+  { name: 'PFC_RollLeft', confName: 'PFC_Roll', filterPreset: 'left', multiplier: -1, hint: 'Stick left = roll left', hardware: 'stick', importance: 'critical' },
+  { name: 'PFC_YawRight', confName: 'PFC_Yaw', filterPreset: 'right', hint: 'Rudder right (twist or right pedal)', hardware: 'pedals', importance: 'critical' },
+  { name: 'PFC_YawLeft', confName: 'PFC_Yaw', filterPreset: 'left', multiplier: -1, hint: 'Rudder left (twist or left pedal)', hardware: 'pedals', importance: 'critical' },
+  { name: 'PFC_ThrottleAxis', rawAxis: true, filterPreset: 'forward', hint: 'Move your throttle lever FORWARD — the whole axis is captured, full travel = idle to full thrust', hardware: 'throttle', importance: 'critical' },
+  { name: 'PFC_ThrottleUp', filterPreset: 'hold', hint: 'Throttle up (button fallback if you have no throttle axis)', hardware: 'button', importance: 'optional' },
+  { name: 'PFC_ThrottleDown', filterPreset: 'hold', hint: 'Throttle down (button fallback if you have no throttle axis)', hardware: 'button', importance: 'optional' },
+  { name: 'VehicleNextWeapon', filterPreset: 'click', hint: 'Cycle aircraft weapons (use same button as all weapon switch actions)', hardware: 'hat', importance: 'important' },
+  { name: 'PFC_GearToggle', filterPreset: 'click', hint: 'Landing gear up/down', hardware: 'button', importance: 'important' },
+  { name: 'PFC_Flaps', filterPreset: 'click', hint: 'Cycle flaps (clean / takeoff / landing)', hardware: 'button', importance: 'important' },
+  { name: 'PFC_Airbrake', filterPreset: 'click', hint: 'Airbrake toggle', hardware: 'button', importance: 'important' },
+  { name: 'PFC_WheelBrake', filterPreset: 'pressed', hint: 'Wheel brakes (hold while taxiing/landing)', hardware: 'pedals', importance: 'important' },
+  { name: 'PFC_WheelBrakePersistent', filterPreset: 'pressed', hint: 'Parking brake (toggle)', hardware: 'button', importance: 'optional' },
+  { name: 'PFC_EngineStart', filterPreset: 'hold', hint: 'Hold to start engines', hardware: 'button', importance: 'important' },
+  { name: 'PFC_EngineStop', filterPreset: 'click', hint: 'Stop engines', hardware: 'button', importance: 'optional' },
+  { name: 'PFC_TrimUp', filterPreset: 'hold', hint: 'Pitch trim nose up', hardware: 'button', importance: 'optional' },
+  { name: 'PFC_TrimDown', filterPreset: 'hold', hint: 'Pitch trim nose down', hardware: 'button', importance: 'optional' },
+  { name: 'PFC_TrimReset', filterPreset: 'click', hint: 'Reset pitch trim to neutral', hardware: 'button', importance: 'optional' },
+  { name: 'PFC_FCSOverride', filterPreset: 'click', hint: 'Flight control system override', hardware: 'button', importance: 'optional' },
+  { name: 'PFC_ReverseThrust', filterPreset: 'click', hint: 'Toggle reverse thrust (aircraft that support it)', hardware: 'button', importance: 'optional' },
+  { name: 'PFC_LightsTaxiToggle', filterPreset: 'toggle', hint: 'Taxi lights', hardware: 'switch', importance: 'optional' },
+  { name: 'PFC_LightsLandingToggle', filterPreset: 'toggle', hint: 'Landing lights', hardware: 'switch', importance: 'optional' }
 ]
 
 // Axis calibration data
@@ -92,7 +135,7 @@ interface AxisCalibration {
 
 // State
 const state = reactive<AppState>({
-  actions: ACTIONS.map(action => ({ ...action, bindings: [] })),
+  actions: [...AIRCRAFT_ACTIONS, ...ACTIONS].map(action => ({ ...action, bindings: [] })),
   currentActionIndex: -1,
   furthestActionIndex: -1,
   configuring: false,
@@ -110,6 +153,7 @@ const hatModeEnabled = ref(false)
 const calibrationModeEnabled = ref(false)
 const autoProgressEnabled = ref(true) // Auto-advance to next action after confirming binding
 const wcsActionsEnabled = ref(false) // Include WCS Armament mod actions
+const aircraftActionsEnabled = ref(true) // Include fixed-wing aircraft mod actions
 
 // Test mode state
 const testModeEnabled = ref(false)
@@ -119,15 +163,16 @@ const testModeMatchingActions = ref<Action[]>([])
 // Documentation expanded state
 const docsExpanded = ref(false)
 
-// Watch for WCS actions toggle and rebuild actions list
-watch(wcsActionsEnabled, (enabled) => {
+// Rebuild the actions list when an action-set toggle changes
+function rebuildActionsList() {
+  const aircraftActions = aircraftActionsEnabled.value ? AIRCRAFT_ACTIONS.map(action => ({ ...action, bindings: [] as string[] })) : []
   const baseActions = ACTIONS.map(action => ({ ...action, bindings: [] as string[] }))
-  const wcsActions = WCS_ACTIONS.map(action => ({ ...action, bindings: [] as string[] }))
+  const wcsActions = wcsActionsEnabled.value ? WCS_ACTIONS.map(action => ({ ...action, bindings: [] as string[] })) : []
 
   // Preserve existing bindings where possible
   const existingBindings = new Map(state.actions.map(a => [a.name, a.bindings]))
 
-  const newActions = enabled ? [...baseActions, ...wcsActions] : baseActions
+  const newActions = [...aircraftActions, ...baseActions, ...wcsActions]
   newActions.forEach(action => {
     const existing = existingBindings.get(action.name)
     if (existing) {
@@ -144,7 +189,10 @@ watch(wcsActionsEnabled, (enabled) => {
   if (state.furthestActionIndex >= state.actions.length) {
     state.furthestActionIndex = state.actions.length - 1
   }
-})
+}
+
+watch(wcsActionsEnabled, rebuildActionsList)
+watch(aircraftActionsEnabled, rebuildActionsList)
 
 // Cookie consent state
 const showCookieConsent = ref(false)
@@ -158,6 +206,31 @@ interface GamepadVisualization {
 }
 
 const gamepadVisualizations = ref<GamepadVisualization[]>([])
+const webHIDSupported = ref(false)
+const webHIDDevices = ref<WebHIDDeviceInfo[]>([])
+const webHIDError = ref<string | null>(null)
+
+function refreshWebHIDDevices() {
+  webHIDDevices.value = getWebHIDDevices()
+}
+
+async function connectWebHID() {
+  webHIDError.value = null
+  try {
+    await requestWebHIDDevices()
+    refreshWebHIDDevices()
+    resetGamepadBaseline()
+  } catch (error) {
+    webHIDError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function changeWebHIDJoystickIndex(key: string, event: Event) {
+  const select = event.target as HTMLSelectElement
+  setWebHIDJoystickIndex(key, Number.parseInt(select.value, 10))
+  refreshWebHIDDevices()
+  resetGamepadBaseline()
+}
 
 // Git commit hash injected at build time
 const gitHash = __GIT_HASH__
@@ -209,7 +282,7 @@ const isConfigurationComplete = computed(() => {
 const FIRE_ACTION_NAMES = ['CharacterFire', 'TurretFire', 'HelicopterFire', 'VehicleFire']
 
 // Weapon switching action helpers
-const WEAPON_SWITCH_ACTION_NAMES = ['CharacterNextWeapon', 'TurretNextWeapon']
+const WEAPON_SWITCH_ACTION_NAMES = ['CharacterNextWeapon', 'TurretNextWeapon', 'VehicleNextWeapon']
 
 const isCurrentActionFireAction = computed(() => {
   if (!currentAction.value) return false
@@ -265,17 +338,44 @@ function describeInput(input: string): string {
   }
 }
 
-function resetGamepadBaseline() {
+function snapshotToGamepadState(snapshot: JoystickSnapshot): GamepadState {
+  return {
+    buttons: snapshot.buttons.map(pressed => ({ pressed })),
+    axes: [...snapshot.axes]
+  }
+}
+
+function gamepadToSnapshot(gamepad: Gamepad): JoystickSnapshot {
+  return {
+    index: gamepad.index,
+    id: gamepad.id,
+    buttons: gamepad.buttons.map(button => button.pressed),
+    axes: [...gamepad.axes],
+    source: 'gamepad'
+  }
+}
+
+function getActiveJoystickSnapshots(): JoystickSnapshot[] {
+  const webHIDSnapshots = getWebHIDSnapshots()
+  const webHIDIndices = new Set(webHIDSnapshots.map(snapshot => snapshot.index))
+  const snapshots = [...webHIDSnapshots]
+
   const gamepads = navigator.getGamepads()
-  for (let i = 0; i < gamepads.length; i++) {
-    const gamepad = gamepads[i]
-    if (gamepad) {
-      const stateSnapshot: GamepadState = {
-        buttons: gamepad.buttons.map(b => ({ pressed: b.pressed })),
-        axes: [...gamepad.axes]
-      }
-      state.previousGamepadState[i] = { ...stateSnapshot }
-      state.baselineGamepadState[i] = { ...stateSnapshot }
+  for (const gamepad of gamepads) {
+    if (!gamepad || webHIDIndices.has(gamepad.index)) continue
+    snapshots.push(gamepadToSnapshot(gamepad))
+  }
+
+  return snapshots.sort((a, b) => a.index - b.index)
+}
+
+function resetGamepadBaseline() {
+  for (const snapshot of getActiveJoystickSnapshots()) {
+    const stateSnapshot = snapshotToGamepadState(snapshot)
+    state.previousGamepadState[snapshot.index] = stateSnapshot
+    state.baselineGamepadState[snapshot.index] = {
+      buttons: stateSnapshot.buttons.map(button => ({ ...button })),
+      axes: [...stateSnapshot.axes]
     }
   }
 }
@@ -482,7 +582,7 @@ function handleTestModeInput(input: string) {
   testModeMatchingActions.value = findActionsByInput(input)
 }
 
-function detectTestModeInput(gamepad: Gamepad, gamepadIndex: number) {
+function detectTestModeInput(gamepad: { buttons: { pressed: boolean }[]; axes: number[] }, gamepadIndex: number) {
   if (state.inputCooldown) return
 
   if (!state.previousGamepadState[gamepadIndex]) {
@@ -627,7 +727,7 @@ function assignInput(input: string) {
   }
 }
 
-function detectInput(gamepad: Gamepad, gamepadIndex: number) {
+function detectInput(gamepad: { buttons: { pressed: boolean }[]; axes: number[] }, gamepadIndex: number) {
   if (state.inputCooldown) return
 
   if (!state.previousGamepadState[gamepadIndex]) {
@@ -717,67 +817,58 @@ function detectInput(gamepad: Gamepad, gamepadIndex: number) {
   }
 }
 
-function updateVisualizations(gamepads: (Gamepad | null)[]) {
-  const visualizations: GamepadVisualization[] = []
-
-  for (let i = 0; i < gamepads.length; i++) {
-    const gamepad = gamepads[i]
-    if (gamepad) {
-      visualizations.push({
-        index: gamepad.index,
-        name: gamepad.id,
-        axes: gamepad.axes.map((rawValue, axisIndex) =>
-          normalizeAxisValue(gamepad.index, axisIndex, rawValue)
-        ),
-        buttons: gamepad.buttons.map(b => b.pressed)
-      })
-    }
-  }
-
-  gamepadVisualizations.value = visualizations
+function updateVisualizations(snapshots: JoystickSnapshot[]) {
+  gamepadVisualizations.value = snapshots.map(snapshot => ({
+    index: snapshot.index,
+    name: snapshot.id,
+    axes: snapshot.axes.map((rawValue, axisIndex) =>
+      normalizeAxisValue(snapshot.index, axisIndex, rawValue)
+    ),
+    buttons: [...snapshot.buttons]
+  }))
 }
 
 let animationFrameId: number | null = null
 
 function pollGamepads() {
-  const gamepads = navigator.getGamepads()
-  let hasGamepads = false
+  const snapshots = getActiveJoystickSnapshots()
+  const connectedIndices = new Set<number>()
 
-  for (let i = 0; i < gamepads.length; i++) {
-    const gamepad = gamepads[i]
-    if (gamepad) {
-      hasGamepads = true
+  for (const snapshot of snapshots) {
+    connectedIndices.add(snapshot.index)
+    state.connectedGamepads[snapshot.index] = {
+      id: snapshot.id,
+      index: snapshot.index
+    }
 
-      if (!state.connectedGamepads[i]) {
-        state.connectedGamepads[i] = {
-          id: gamepad.id,
-          index: i
-        }
-      }
+    for (let axisIndex = 0; axisIndex < snapshot.axes.length; axisIndex++) {
+      updateAxisCalibration(snapshot.index, axisIndex, snapshot.axes[axisIndex])
+    }
 
-      // Update calibration data for all axes (always, even when not configuring)
-      for (let axisIndex = 0; axisIndex < gamepad.axes.length; axisIndex++) {
-        updateAxisCalibration(i, axisIndex, gamepad.axes[axisIndex])
-      }
+    const inputState = {
+      buttons: snapshot.buttons.map(pressed => ({ pressed })),
+      axes: snapshot.axes
+    }
 
-      if (state.configuring && state.currentActionIndex >= 0) {
-        detectInput(gamepad, i)
-      }
+    if (state.configuring && state.currentActionIndex >= 0) {
+      detectInput(inputState, snapshot.index)
+    }
 
-      // Test mode input detection
-      if (testModeEnabled.value) {
-        detectTestModeInput(gamepad, i)
-      }
+    if (testModeEnabled.value) {
+      detectTestModeInput(inputState, snapshot.index)
     }
   }
 
-  if (!hasGamepads && Object.keys(state.connectedGamepads).length > 0) {
-    state.connectedGamepads = {}
+  for (const key of Object.keys(state.connectedGamepads)) {
+    const index = Number.parseInt(key, 10)
+    if (!connectedIndices.has(index)) {
+      delete state.connectedGamepads[index]
+      delete state.previousGamepadState[index]
+      delete state.baselineGamepadState[index]
+    }
   }
 
-  // Update visualizations for all connected gamepads
-  updateVisualizations(gamepads)
-
+  updateVisualizations(snapshots)
   animationFrameId = requestAnimationFrame(pollGamepads)
 }
 
@@ -829,22 +920,45 @@ function trackConfigDownload() {
 function generateConfig(): string {
   let config = 'ActionManager {\n Actions {\n'
 
+  // Group entries that emit into the same game action. Direction-split analog
+  // actions share a confName so each action gets one block with all sources.
+  const actionGroups = new Map<string, Action[]>()
   state.actions.forEach(action => {
-    if (action.bindings.length > 0) {
-      const inputSourceGUID = generateGUID()
+    if (action.bindings.length === 0) return
+    const emittedName = action.confName ?? action.name
+    const group = actionGroups.get(emittedName)
+    if (group) {
+      group.push(action)
+    } else {
+      actionGroups.set(emittedName, [action])
+    }
+  })
 
-      config += `  Action ${action.name} {\n`
-      config += `   InputSource InputSourceSum "${inputSourceGUID}" {\n`
-      config += `    Sources {\n`
+  actionGroups.forEach((groupActions, emittedName) => {
+    const inputSourceGUID = generateGUID()
 
-      // Generate an InputSourceValue for each binding
+    config += `  Action ${emittedName} {\n`
+    config += `   InputSource InputSourceSum "${inputSourceGUID}" {\n`
+    config += `    Sources {\n`
+
+    groupActions.forEach(action => {
       action.bindings.forEach(binding => {
+        let input = binding
+        if (action.rawAxis) {
+          input = binding.replace(/(axis\d+)[+-]$/, '$1')
+        }
+
         const inputValueGUID = generateGUID()
         config += `     InputSourceValue "${inputValueGUID}" {\n`
         config += `      FilterPreset "${action.filterPreset}"\n`
-        config += `      Input "${binding}"\n`
+        config += `      Input "${input}"\n`
 
-        if (action.filterPreset === 'toggle') {
+        if (action.multiplier !== undefined) {
+          const filterGUID = generateGUID()
+          config += `      Filter InputFilterValue "${filterGUID}" {\n`
+          config += `       Multiplier ${action.multiplier}\n`
+          config += `      }\n`
+        } else if (action.filterPreset === 'toggle') {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterDown "${filterGUID}" {\n`
           config += `      }\n`
@@ -867,11 +981,11 @@ function generateConfig(): string {
 
         config += `     }\n`
       })
+    })
 
-      config += `    }\n`
-      config += `   }\n`
-      config += `  }\n`
-    }
+    config += `    }\n`
+    config += `   }\n`
+    config += `  }\n`
   })
 
   config += ' }\n}\n'
@@ -1033,8 +1147,25 @@ function declineCookies() {
 }
 
 // Lifecycle
-onMounted(() => {
+onMounted(async () => {
   document.addEventListener('keydown', handleKeyDown)
+  webHIDSupported.value = isWebHIDSupported()
+
+  if (webHIDSupported.value) {
+    try {
+      await initializeWebHID(() => {
+        // Keep device metadata in sync, but do not reset the input baseline here.
+        // This callback fires for every HID input report; resetting the baseline
+        // would consume the button/axis transition before the configurator sees it.
+        refreshWebHIDDevices()
+      })
+      refreshWebHIDDevices()
+    } catch (error) {
+      webHIDError.value = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  resetGamepadBaseline()
   pollGamepads()
   checkCookieConsent()
 })
@@ -1044,6 +1175,7 @@ onUnmounted(() => {
   if (animationFrameId !== null) {
     cancelAnimationFrame(animationFrameId)
   }
+  void closeWebHIDDevices()
 })
 </script>
 
@@ -1233,9 +1365,39 @@ onUnmounted(() => {
     <div class="status-section">
       <div class="joystick-status">
         <h2>Connected Joysticks</h2>
+
+        <div class="webhid-controls">
+          <button v-if="webHIDSupported" @click="connectWebHID" class="btn btn-primary">
+            Connect HOTAS / Joystick with WebHID
+          </button>
+          <p v-else class="no-joysticks">
+            WebHID is unavailable. The configurator is using the standard Gamepad API fallback.
+          </p>
+          <p v-if="webHIDError" class="no-joysticks">{{ webHIDError }}</p>
+        </div>
+
+        <div v-if="webHIDDevices.length > 0" class="webhid-device-list">
+          <div v-for="device in webHIDDevices" :key="device.key" class="joystick-item">
+            <div>
+              <div class="joystick-name">{{ device.name }}</div>
+              <div class="joystick-id">
+                WebHID · {{ device.buttonCount }} buttons · {{ device.axisCount }} axes
+              </div>
+            </div>
+            <label class="joystick-id">
+              Reforger index
+              <select :value="device.joystickIndex" @change="changeWebHIDJoystickIndex(device.key, $event)">
+                <option v-for="index in 4" :key="index - 1" :value="index - 1">
+                  joystick{{ index - 1 }}
+                </option>
+              </select>
+            </label>
+          </div>
+        </div>
+
         <div id="joystick-list">
           <p v-if="Object.keys(state.connectedGamepads).length === 0" class="no-joysticks">
-            No joysticks detected. Connect a joystick and press any button.
+            No joysticks detected. Connect a joystick with WebHID, or press a button to use the Gamepad API fallback.
           </p>
           <div v-for="gp in Object.values(state.connectedGamepads)" :key="gp.index" class="joystick-item">
             <div class="joystick-name">{{ gp.id }}</div>
@@ -1413,7 +1575,7 @@ onUnmounted(() => {
             <div class="fire-action-icon">🔄</div>
             <div class="fire-action-content">
               <strong>Important: Weapon Switch Binding</strong>
-              <p>All weapon switch actions (CharacterNextWeapon, TurretNextWeapon) should be bound to the SAME button. This ensures consistent weapon cycling across all contexts.</p>
+              <p>All weapon switch actions (CharacterNextWeapon, TurretNextWeapon, VehicleNextWeapon) should be bound to the SAME button. This ensures consistent weapon cycling across all contexts.</p>
               <div v-if="firstConfiguredWeaponSwitchAction && firstConfiguredWeaponSwitchAction.name !== currentAction?.name" class="fire-action-suggestion">
                 <p>✓ You already configured <strong>{{ formatActionName(firstConfiguredWeaponSwitchAction.name) }}</strong> to <strong>{{ firstConfiguredWeaponSwitchAction.bindings.join(', ') }}</strong></p>
                 <button @click="copyWeaponSwitchBinding" class="btn btn-primary btn-small">
@@ -1533,6 +1695,12 @@ onUnmounted(() => {
           <button class="filter-btn" :class="{ active: state.filter === 'unconfigured' }" @click="state.filter = 'unconfigured'">
             Unconfigured (<span>{{ unconfiguredCount }}</span>)
           </button>
+        </div>
+        <div class="wcs-toggle">
+          <label class="wcs-toggle-label">
+            <input type="checkbox" v-model="aircraftActionsEnabled">
+            <span>Include fixed-wing aircraft actions (SU-25 / SU-33 / C-130 and other flight-core mods)</span>
+          </label>
         </div>
         <div class="wcs-toggle">
           <label class="wcs-toggle-label">

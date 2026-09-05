@@ -44,7 +44,7 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'CharacterNextMuzzle', filterPreset: 'click', hint: 'Switch muzzle attachment or barrel', hardware: 'button', importance: 'optional' },
   { name: 'TurretFire', filterPreset: 'hold', hint: 'Fire turret weapon (use same trigger as all fire actions)', hardware: 'trigger', importance: 'important' },
   { name: 'TurretReload', filterPreset: 'click', hint: 'Reload turret weapon', hardware: 'button', importance: 'important' },
-  { name: 'TurretNextWeapon', filterPreset: 'click', hint: 'Cycle turret weapons (use same button as all weapon switch actions)', hardware: 'hat', importance: 'important' },
+  { name: 'TurretNextWeapon', filterPreset: 'hold', hint: 'Cycle turret weapons (250 ms hold-once to prevent skipped weapons)', hardware: 'hat', importance: 'important' },
   { name: 'TurretNextFireMode', filterPreset: 'click', hint: 'Change turret fire mode', hardware: 'button', importance: 'optional' },
   { name: 'TurretADS', filterPreset: 'click', hint: 'Aim down sights (toggle)', hardware: 'button', importance: 'optional' },
   { name: 'TurretADSHold', filterPreset: 'hold', hint: 'Aim down sights (hold)', hardware: 'button', importance: 'optional' },
@@ -985,7 +985,16 @@ function generateConfig(): string {
         config += `      FilterPreset "${action.filterPreset}"\n`
         config += `      Input "${input}"\n`
 
-        if (action.confName === 'HelicopterSightZeroing' || action.confName === 'SelectAction') {
+        if (action.name === 'CharacterNextWeapon') {
+          const filterGUID = generateGUID()
+          config += `      Filter InputFilterSingleClick "${filterGUID}" {\n`
+          config += `      }\n`
+        } else if (action.name === 'TurretNextWeapon') {
+          const filterGUID = generateGUID()
+          config += `      Filter InputFilterHoldOnce "${filterGUID}" {\n`
+          config += `       HoldDuration 250\n`
+          config += `      }\n`
+        } else if (action.confName === 'HelicopterSightZeroing' || action.confName === 'SelectAction') {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterRepeat "${filterGUID}" {\n`
           if (action.multiplier !== undefined) {

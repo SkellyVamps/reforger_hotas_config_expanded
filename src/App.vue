@@ -215,7 +215,6 @@ interface GamepadVisualization {
 const gamepadVisualizations = ref<GamepadVisualization[]>([])
 const ignoredGamepadIndices = ref<Set<number>>(new Set())
 const detectedGamepads = ref<{ index: number; name: string }[]>([])
-const ignoredGamepads = ref<{ index: number; name: string }[]>([])
 const webHIDSupported = ref(false)
 const webHIDDevices = ref<WebHIDDeviceInfo[]>([])
 const webHIDError = ref<string | null>(null)
@@ -863,11 +862,6 @@ function pollGamepads() {
   const browserGamepads = Array.from(navigator.getGamepads()).filter((gamepad): gamepad is Gamepad => !!gamepad)
 
   detectedGamepads.value = browserGamepads
-    .filter(gamepad => !ignoredGamepadIndices.value.has(gamepad.index))
-    .map(gamepad => ({ index: gamepad.index, name: gamepad.id }))
-
-  ignoredGamepads.value = browserGamepads
-    .filter(gamepad => ignoredGamepadIndices.value.has(gamepad.index))
     .map(gamepad => ({ index: gamepad.index, name: gamepad.id }))
 
   const snapshots = getActiveJoystickSnapshots()
@@ -1471,12 +1465,35 @@ onUnmounted(() => {
         </div>
 
         <div id="joystick-list">
-          <p v-if="Object.keys(state.connectedGamepads).length === 0" class="no-joysticks">
+          <p v-if="webHIDDevices.length === 0 && detectedGamepads.length === 0" class="no-joysticks">
             No joysticks detected. Connect a joystick with WebHID, or press a button to use the Gamepad API fallback.
           </p>
-          <div v-for="gp in Object.values(state.connectedGamepads)" :key="gp.index" class="joystick-item">
-            <div class="joystick-name">{{ gp.id }}</div>
-            <div class="joystick-id">Joystick {{ gp.index }}</div>
+          <div
+            v-for="device in detectedGamepads"
+            :key="`gamepad-api-${device.index}`"
+            class="joystick-item"
+            :style="{ opacity: ignoredGamepadIndices.has(device.index) ? 0.45 : 1 }"
+          >
+            <div>
+              <div class="joystick-name">{{ device.name }}</div>
+              <div class="joystick-id">
+                Gamepad API · Joystick {{ device.index }}
+                <span v-if="ignoredGamepadIndices.has(device.index)"> · Ignored</span>
+              </div>
+            </div>
+            <button
+              v-if="!ignoredGamepadIndices.has(device.index)"
+              @click="ignoreGamepad(device.index)"
+              class="btn btn-secondary"
+              type="button"
+              title="Ignore this Gamepad API device for this session"
+            >Ignore</button>
+            <button
+              v-else
+              @click="restoreGamepad(device.index)"
+              class="btn btn-secondary"
+              type="button"
+            >Restore</button>
           </div>
         </div>
       </div>
@@ -1717,48 +1734,13 @@ onUnmounted(() => {
             <div class="viz-header">
               <h3>Live Input Monitor</h3>
             </div>
-            <div v-if="detectedGamepads.length > 0" class="viz-gamepad">
-              <div class="viz-gamepad-header">
-                <span class="viz-device-number">Gamepad API devices</span>
-              </div>
-              <div class="viz-content">
-                <div v-for="device in detectedGamepads" :key="`detected-${device.index}`" class="detected-device">
-                  <span>Device {{ device.index }} — {{ device.name }}</span>
-                  <button
-                    @click="ignoreGamepad(device.index)"
-                    class="btn btn-secondary"
-                    type="button"
-                    title="Ignore this Gamepad API device for this session"
-                  >Ignore</button>
-                </div>
-              </div>
-            </div>
-
             <div v-if="gamepadVisualizations.length === 0" class="viz-no-devices">
               <p>No joysticks detected. Connect a joystick and press any button.</p>
-            </div>
-            <div v-if="ignoredGamepads.length > 0" class="viz-gamepad">
-              <div class="viz-gamepad-header">
-                <span class="viz-device-number">Ignored Gamepad API devices</span>
-              </div>
-              <div class="viz-content">
-                <div v-for="device in ignoredGamepads" :key="`ignored-${device.index}`" class="detected-device">
-                  <span>Device {{ device.index }} — {{ device.name }}</span>
-                  <button @click="restoreGamepad(device.index)" class="btn btn-secondary" type="button">Restore</button>
-                </div>
-              </div>
             </div>
             <div v-for="gamepadViz in gamepadVisualizations" :key="`${gamepadViz.source}-${gamepadViz.index}`" class="viz-gamepad">
               <div class="viz-gamepad-header">
                 <span class="viz-device-number">Device {{ gamepadViz.index }}</span>
                 <span class="viz-device-name">{{ gamepadViz.name }}</span>
-                <button
-                  v-if="gamepadViz.source === 'gamepad'"
-                  @click="ignoreGamepad(gamepadViz.index)"
-                  class="btn btn-secondary"
-                  type="button"
-                  title="Ignore this Gamepad API device for this session"
-                >Ignore</button>
               </div>
               <div class="viz-content">
                 <div class="viz-axes">
@@ -1848,7 +1830,7 @@ onUnmounted(() => {
         <span class="version-separator">•</span>
         <span class="version-info">Version: <code>{{ gitHash }}</code></span>
       </p>
-      <p class="credits">Designed by StormPale</p>
+      <p class="credits">Designed by StormPale<br>Edited by SkellyVamps</p>
     </footer>
   </div>
 </template>

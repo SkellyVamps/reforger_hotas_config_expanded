@@ -14,8 +14,23 @@ interface CheatSheetDevice {
   bindings: CheatSheetBinding[]
 }
 
+interface CheatSheetPage {
+  device: CheatSheetDevice
+  bindings: CheatSheetBinding[]
+  pageNumber: number
+  totalPages: number
+}
+
+interface ZipEntry {
+  name: string
+  data: Uint8Array
+}
+
 const WIDTH = 1920
 const HEIGHT = 1080
+const COLUMN_COUNT = 3
+const ROWS_PER_COLUMN = 18
+const BINDINGS_PER_PAGE = COLUMN_COUNT * ROWS_PER_COLUMN
 
 function readableActionName(name: string): string {
   return name
@@ -28,7 +43,7 @@ function readableActionName(name: string): string {
 }
 
 function controlLabel(binding: CheatSheetBinding): string {
-  if (binding.type === 'button') return `Button ${binding.controlIndex+1}`
+  if (binding.type === 'button') return `Button ${binding.controlIndex + 1}`
   return `Axis ${binding.controlIndex}${binding.direction}`
 }
 
@@ -69,7 +84,7 @@ function collectDevices(
   const indices = new Set<number>()
   for (const entry of map.values()) indices.add(entry.joystickIndex)
 
-  const devices: CheatSheetDevice[] = [...indices]
+  return [...indices]
     .sort((a, b) => a - b)
     .map(index => ({
       index,
@@ -78,8 +93,30 @@ function collectDevices(
         .filter(entry => entry.joystickIndex === index)
         .sort(compareBindings)
     }))
+}
 
-  return devices
+function paginateDevices(devices: CheatSheetDevice[]): CheatSheetPage[] {
+  const sourceDevices = devices.length > 0
+    ? devices
+    : [{ index: 0, name: 'Joystick 0', bindings: [] }]
+
+  const pages: CheatSheetPage[] = []
+
+  for (const device of sourceDevices) {
+    const totalPages = Math.max(1, Math.ceil(device.bindings.length / BINDINGS_PER_PAGE))
+
+    for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+      const start = pageIndex * BINDINGS_PER_PAGE
+      pages.push({
+        device,
+        bindings: device.bindings.slice(start, start + BINDINGS_PER_PAGE),
+        pageNumber: pageIndex + 1,
+        totalPages
+      })
+    }
+  }
+
+  return pages
 }
 
 function roundedRect(
@@ -111,7 +148,7 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number):
 
 function drawDeviceCard(
   ctx: CanvasRenderingContext2D,
-  device: CheatSheetDevice,
+  page: CheatSheetPage,
   x: number,
   y: number,
   width: number,
@@ -131,28 +168,26 @@ function drawDeviceCard(
 
   ctx.fillStyle = text
   ctx.font = '700 34px system-ui, sans-serif'
-  ctx.fillText(`JOYSTICK ${device.index}`, x + 32, y + 48)
+  ctx.fillText(`JOYSTICK ${page.device.index}`, x + 32, y + 48)
 
   ctx.font = '20px system-ui, sans-serif'
   ctx.fillStyle = muted
-  const deviceName = fitText(ctx, device.name, width - 64)
+  const pageSuffix = page.totalPages > 1 ? ` · Page ${page.pageNumber} of ${page.totalPages}` : ''
+  const deviceName = fitText(ctx, `${page.device.name}${pageSuffix}`, width - 64)
   ctx.fillText(deviceName, x + 32, y + 78)
 
   const top = y + 108
   const innerWidth = width - 64
   const columnGap = 18
-  const columnWidth = (innerWidth - columnGap) / 2
+  const columnWidth = (innerWidth - columnGap * (COLUMN_COUNT - 1)) / COLUMN_COUNT
   const rowHeight = 38
-  const maxRows = Math.max(1, Math.floor((height - 148) / rowHeight))
-  const maxItems = maxRows * 2
-  const bindings = device.bindings.slice(0, maxItems)
 
-  for (let i = 0; i < bindings.length; i++) {
-    const column = Math.floor(i / maxRows)
-    const row = i % maxRows
+  for (let i = 0; i < page.bindings.length; i++) {
+    const column = Math.floor(i / ROWS_PER_COLUMN)
+    const row = i % ROWS_PER_COLUMN
     const bx = x + 32 + column * (columnWidth + columnGap)
     const by = top + row * rowHeight
-    const binding = bindings[i]
+    const binding = page.bindings[i]
 
     roundedRect(ctx, bx, by, columnWidth, rowHeight - 6, 8)
     ctx.fillStyle = 'rgba(30, 41, 59, 0.96)'
@@ -161,33 +196,29 @@ function drawDeviceCard(
     ctx.lineWidth = 1
     ctx.stroke()
 
-    ctx.font = '700 16px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.font = '700 15px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.fillStyle = accent
     const control = controlLabel(binding)
-    ctx.fillText(control, bx + 12, by + 21)
+    ctx.fillText(control, bx + 10, by + 21)
 
-    const labelX = bx + 122
-    const labelWidth = columnWidth - 134
-    ctx.font = '16px system-ui, sans-serif'
+    const labelX = bx + 112
+    const labelWidth = columnWidth - 122
+    ctx.font = '15px system-ui, sans-serif'
     ctx.fillStyle = text
     const actionText = fitText(ctx, binding.actions.join(' / '), labelWidth)
     ctx.fillText(actionText, labelX, by + 21)
   }
 
-  if (device.bindings.length === 0) {
+  if (page.device.bindings.length === 0) {
     ctx.font = '20px system-ui, sans-serif'
     ctx.fillStyle = muted
     ctx.fillText('No configured bindings for this joystick.', x + 32, top + 28)
-  } else if (device.bindings.length > maxItems) {
-    ctx.font = '16px system-ui, sans-serif'
-    ctx.fillStyle = muted
-    ctx.fillText(`+ ${device.bindings.length - maxItems} more bindings`, x + 32, y + height - 20)
   }
 
   ctx.restore()
 }
 
-function drawSheet(actions: Action[], connectedGamepads: Record<number, ConnectedGamepad>): HTMLCanvasElement {
+function drawSheet(page: CheatSheetPage, exportPageNumber: number, exportPageCount: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = WIDTH
   canvas.height = HEIGHT
@@ -201,7 +232,6 @@ function drawSheet(actions: Action[], connectedGamepads: Record<number, Connecte
   ctx.fillStyle = background
   ctx.fillRect(0, 0, WIDTH, HEIGHT)
 
-  // Subtle star-field effect inspired by common HOTAS reference sheets.
   ctx.fillStyle = 'rgba(255,255,255,0.34)'
   for (let i = 0; i < 110; i++) {
     const sx = (i * 173) % WIDTH
@@ -218,39 +248,17 @@ function drawSheet(actions: Action[], connectedGamepads: Record<number, Connecte
   ctx.font = '22px system-ui, sans-serif'
   ctx.fillText('Generated from your HOTAS Configurator bindings', 72, 112)
 
-  const devices = collectDevices(actions, connectedGamepads)
-  const visibleDevices = devices.length > 0 ? devices.slice(0, 4) : [{ index: 0, name: 'Joystick 0', bindings: [] }]
-
   const margin = 70
-  const gap = 28
   const contentTop = 150
   const contentHeight = HEIGHT - contentTop - 64
-
-  if (visibleDevices.length === 1) {
-    drawDeviceCard(ctx, visibleDevices[0], margin, contentTop, WIDTH - margin * 2, contentHeight)
-  } else if (visibleDevices.length === 2) {
-    const cardWidth = (WIDTH - margin * 2 - gap) / 2
-    drawDeviceCard(ctx, visibleDevices[0], margin, contentTop, cardWidth, contentHeight)
-    drawDeviceCard(ctx, visibleDevices[1], margin + cardWidth + gap, contentTop, cardWidth, contentHeight)
-  } else {
-    const cardWidth = (WIDTH - margin * 2 - gap) / 2
-    const cardHeight = (contentHeight - gap) / 2
-    visibleDevices.forEach((device, i) => {
-      const col = i % 2
-      const row = Math.floor(i / 2)
-      drawDeviceCard(
-        ctx,
-        device,
-        margin + col * (cardWidth + gap),
-        contentTop + row * (cardHeight + gap),
-        cardWidth,
-        cardHeight
-      )
-    })
-  }
+  drawDeviceCard(ctx, page, margin, contentTop, WIDTH - margin * 2, contentHeight)
 
   ctx.fillStyle = 'rgba(148, 163, 184, 0.9)'
   ctx.font = '16px system-ui, sans-serif'
+  ctx.textAlign = 'left'
+  if (exportPageCount > 1) {
+    ctx.fillText(`Cheat sheet ${exportPageNumber} of ${exportPageCount}`, 70, HEIGHT - 24)
+  }
   ctx.textAlign = 'right'
   ctx.fillText('reforger_hotas_config_expanded', WIDTH - 70, HEIGHT - 24)
   ctx.textAlign = 'left'
@@ -265,24 +273,151 @@ function safeFilenamePart(value: string): string {
     .slice(0, 60)
 }
 
-export function downloadCheatSheet(
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob)
+      else reject(new Error('Unable to render cheat-sheet PNG'))
+    }, 'image/png')
+  })
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+function writeUint16(target: number[], value: number) {
+  target.push(value & 0xff, (value >>> 8) & 0xff)
+}
+
+function writeUint32(target: number[], value: number) {
+  target.push(
+    value & 0xff,
+    (value >>> 8) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 24) & 0xff
+  )
+}
+
+function crc32(data: Uint8Array): number {
+  let crc = 0xffffffff
+
+  for (const byte of data) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1))
+    }
+  }
+
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+function createZip(entries: ZipEntry[]): Blob {
+  const encoder = new TextEncoder()
+  const localParts: Uint8Array[] = []
+  const centralParts: Uint8Array[] = []
+  let offset = 0
+
+  for (const entry of entries) {
+    const nameBytes = encoder.encode(entry.name)
+    const checksum = crc32(entry.data)
+
+    const localHeader: number[] = []
+    writeUint32(localHeader, 0x04034b50)
+    writeUint16(localHeader, 20)
+    writeUint16(localHeader, 0x0800)
+    writeUint16(localHeader, 0)
+    writeUint16(localHeader, 0)
+    writeUint16(localHeader, 0)
+    writeUint32(localHeader, checksum)
+    writeUint32(localHeader, entry.data.length)
+    writeUint32(localHeader, entry.data.length)
+    writeUint16(localHeader, nameBytes.length)
+    writeUint16(localHeader, 0)
+
+    const local = new Uint8Array(localHeader.length + nameBytes.length + entry.data.length)
+    local.set(localHeader, 0)
+    local.set(nameBytes, localHeader.length)
+    local.set(entry.data, localHeader.length + nameBytes.length)
+    localParts.push(local)
+
+    const centralHeader: number[] = []
+    writeUint32(centralHeader, 0x02014b50)
+    writeUint16(centralHeader, 20)
+    writeUint16(centralHeader, 20)
+    writeUint16(centralHeader, 0x0800)
+    writeUint16(centralHeader, 0)
+    writeUint16(centralHeader, 0)
+    writeUint16(centralHeader, 0)
+    writeUint32(centralHeader, checksum)
+    writeUint32(centralHeader, entry.data.length)
+    writeUint32(centralHeader, entry.data.length)
+    writeUint16(centralHeader, nameBytes.length)
+    writeUint16(centralHeader, 0)
+    writeUint16(centralHeader, 0)
+    writeUint16(centralHeader, 0)
+    writeUint16(centralHeader, 0)
+    writeUint32(centralHeader, 0)
+    writeUint32(centralHeader, offset)
+
+    const central = new Uint8Array(centralHeader.length + nameBytes.length)
+    central.set(centralHeader, 0)
+    central.set(nameBytes, centralHeader.length)
+    centralParts.push(central)
+
+    offset += local.length
+  }
+
+  const centralOffset = offset
+  const centralSize = centralParts.reduce((total, part) => total + part.length, 0)
+  const end: number[] = []
+  writeUint32(end, 0x06054b50)
+  writeUint16(end, 0)
+  writeUint16(end, 0)
+  writeUint16(end, entries.length)
+  writeUint16(end, entries.length)
+  writeUint32(end, centralSize)
+  writeUint32(end, centralOffset)
+  writeUint16(end, 0)
+
+  return new Blob([...localParts, ...centralParts, new Uint8Array(end)], { type: 'application/zip' })
+}
+
+export async function downloadCheatSheet(
   actions: Action[],
   connectedGamepads: Record<number, ConnectedGamepad>
 ) {
-  const canvas = drawSheet(actions, connectedGamepads)
-  const devices = Object.values(connectedGamepads)
-  const firstDevice = devices.length > 0 ? safeFilenamePart(devices[0].id) : 'HOTAS'
-  const filename = `${firstDevice || 'HOTAS'}_Cheat_Sheet.png`
+  const devices = collectDevices(actions, connectedGamepads)
+  const pages = paginateDevices(devices)
+  const rendered: ZipEntry[] = []
 
-  canvas.toBlob(blob => {
-    if (!blob) return
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-  }, 'image/png')
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i]
+    const canvas = drawSheet(page, i + 1, pages.length)
+    const blob = await canvasToBlob(canvas)
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const deviceName = safeFilenamePart(page.device.name) || `Joystick_${page.device.index}`
+    const pageSuffix = page.totalPages > 1 ? `_Page_${page.pageNumber}` : ''
+
+    rendered.push({
+      name: `${deviceName}_Cheat_Sheet${pageSuffix}.png`,
+      data: bytes
+    })
+  }
+
+  if (rendered.length === 1) {
+    downloadBlob(new Blob([rendered[0].data], { type: 'image/png' }), rendered[0].name)
+    return
+  }
+
+  const firstDevice = devices.length > 0 ? safeFilenamePart(devices[0].name) : 'HOTAS'
+  const zipFilename = `${firstDevice || 'HOTAS'}_Cheat_Sheets.zip`
+  downloadBlob(createZip(rendered), zipFilename)
 }

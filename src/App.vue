@@ -1520,7 +1520,7 @@ onUnmounted(() => {
         <button @click="downloadConfig" :disabled="configuredCount === 0" class="btn btn-success" :class="{ 'btn-pulse': isConfigurationComplete }">
           {{ isConfigurationComplete ? '✓ Download Your Config File' : 'Download Config' }}
         </button>
-        <button @click="downloadCheatSheet(state.actions, state.connectedGamepads)" :disabled="configuredCount === 0" class="btn btn-secondary">
+        <button @click="downloadCheatSheet(state.actions, state.connectedGamepads)" :disabled="configuredCount === 0" class="btn btn-success">
           Download Cheat Sheet
         </button>
         <button @click="startTestMode" :disabled="configuredCount === 0" class="btn btn-test">

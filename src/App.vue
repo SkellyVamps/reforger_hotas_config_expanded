@@ -69,10 +69,14 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'VONChannel', filterPreset: 'hold', hint: 'Hold to talk on radio channel', hardware: 'button', importance: 'important' },
   { name: 'GadgetMap', filterPreset: 'select', hint: 'Open/close map', hardware: 'button', importance: 'important' },
   { name: 'PerformAction', filterPreset: 'pressed', hint: 'Context action (interact, reload, etc.)', hardware: 'button', importance: 'important' },
-  { name: 'SelectAction', filterPreset: 'previous', hint: 'Cycle through available actions', hardware: 'button', importance: 'optional' },
+  { name: 'SelectActionPrevious', confName: 'SelectAction', filterPreset: 'previous', hint: 'Select the previous available context action', hardware: 'button', importance: 'optional' },
+  { name: 'SelectActionNext', confName: 'SelectAction', filterPreset: 'next', hint: 'Select the next available context action', hardware: 'button', importance: 'optional' },
   { name: 'GetOut', filterPreset: 'click', hint: 'Exit vehicle safely', hardware: 'button', importance: 'important' },
   { name: 'JumpOut', filterPreset: 'click', hint: 'Emergency eject (dangerous!)', hardware: 'button', importance: 'optional' },
-  { name: 'HelicopterSightDeploy', filterPreset: 'click', hint: 'Deploy or retract the helicopter sight', hardware: 'button', importance: 'optional' }
+  { name: 'VehicleDoorToggle', filterPreset: 'click', hint: 'Open or close a supported vehicle door', hardware: 'button', importance: 'optional' },
+  { name: 'HelicopterSightDeploy', filterPreset: 'click', hint: 'Deploy or retract the helicopter sight', hardware: 'button', importance: 'optional' },
+  { name: 'HelicopterSightZeroingIncrease', confName: 'HelicopterSightZeroing', filterPreset: 'up', hint: 'Increase helicopter sight zeroing', hardware: 'button', importance: 'optional' },
+  { name: 'HelicopterSightZeroingDecrease', confName: 'HelicopterSightZeroing', filterPreset: 'down', multiplier: -1, hint: 'Decrease helicopter sight zeroing', hardware: 'button', importance: 'optional' }
 ]
 
 // WCS Armament actions (optional mod support)
@@ -981,7 +985,14 @@ function generateConfig(): string {
         config += `      FilterPreset "${action.filterPreset}"\n`
         config += `      Input "${input}"\n`
 
-        if (action.multiplier !== undefined) {
+        if (action.confName === 'HelicopterSightZeroing' || action.confName === 'SelectAction') {
+          const filterGUID = generateGUID()
+          config += `      Filter InputFilterRepeat "${filterGUID}" {\n`
+          if (action.multiplier !== undefined) {
+            config += `       Multiplier ${action.multiplier}\n`
+          }
+          config += `      }\n`
+        } else if (action.multiplier !== undefined) {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterValue "${filterGUID}" {\n`
           config += `       Multiplier ${action.multiplier}\n`
@@ -1001,7 +1012,7 @@ function generateConfig(): string {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterSingleClick "${filterGUID}" {\n`
           config += `      }\n`
-        } else if (action.name === 'HelicopterSightDeploy') {
+        } else if (action.name === 'HelicopterSightDeploy' || action.name === 'VehicleDoorToggle') {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterClick "${filterGUID}" {\n`
           config += `      }\n`
@@ -1115,6 +1126,22 @@ function parseConfig(configText: string) {
   while ((actionMatch = actionBlockRegex.exec(configText)) !== null) {
     const actionName = actionMatch[1]
     const actionContent = actionMatch[2]
+
+    const groupedActions = state.actions.filter(a => a.confName === actionName)
+    if (groupedActions.length > 0) {
+      // Split grouped game actions back into their UI entries using each source's FilterPreset.
+      const sourceRegex = /FilterPreset\s+"([^"]+)"[\s\S]*?Input\s+"([^"]+)"/g
+      let sourceMatch
+      while ((sourceMatch = sourceRegex.exec(actionContent)) !== null) {
+        const preset = sourceMatch[1]
+        const input = sourceMatch[2]
+        const action = groupedActions.find(a => a.filterPreset === preset)
+        if (action && !action.bindings.includes(input)) {
+          action.bindings.push(input)
+        }
+      }
+      continue
+    }
 
     const action = state.actions.find(a => a.name === actionName)
     if (action) {

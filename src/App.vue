@@ -214,6 +214,7 @@ interface GamepadVisualization {
 
 const gamepadVisualizations = ref<GamepadVisualization[]>([])
 const ignoredGamepadIndices = ref<Set<number>>(new Set())
+const detectedGamepads = ref<{ index: number; name: string }[]>([])
 const ignoredGamepads = ref<{ index: number; name: string }[]>([])
 const webHIDSupported = ref(false)
 const webHIDDevices = ref<WebHIDDeviceInfo[]>([])
@@ -859,8 +860,14 @@ function updateVisualizations(snapshots: JoystickSnapshot[]) {
 let animationFrameId: number | null = null
 
 function pollGamepads() {
-  ignoredGamepads.value = Array.from(navigator.getGamepads())
-    .filter((gamepad): gamepad is Gamepad => !!gamepad && ignoredGamepadIndices.value.has(gamepad.index))
+  const browserGamepads = Array.from(navigator.getGamepads()).filter((gamepad): gamepad is Gamepad => !!gamepad)
+
+  detectedGamepads.value = browserGamepads
+    .filter(gamepad => !ignoredGamepadIndices.value.has(gamepad.index))
+    .map(gamepad => ({ index: gamepad.index, name: gamepad.id }))
+
+  ignoredGamepads.value = browserGamepads
+    .filter(gamepad => ignoredGamepadIndices.value.has(gamepad.index))
     .map(gamepad => ({ index: gamepad.index, name: gamepad.id }))
 
   const snapshots = getActiveJoystickSnapshots()
@@ -1710,6 +1717,23 @@ onUnmounted(() => {
             <div class="viz-header">
               <h3>Live Input Monitor</h3>
             </div>
+            <div v-if="detectedGamepads.length > 0" class="viz-gamepad">
+              <div class="viz-gamepad-header">
+                <span class="viz-device-number">Gamepad API devices</span>
+              </div>
+              <div class="viz-content">
+                <div v-for="device in detectedGamepads" :key="`detected-${device.index}`" class="detected-device">
+                  <span>Device {{ device.index }} — {{ device.name }}</span>
+                  <button
+                    @click="ignoreGamepad(device.index)"
+                    class="btn btn-secondary"
+                    type="button"
+                    title="Ignore this Gamepad API device for this session"
+                  >Ignore</button>
+                </div>
+              </div>
+            </div>
+
             <div v-if="gamepadVisualizations.length === 0" class="viz-no-devices">
               <p>No joysticks detected. Connect a joystick and press any button.</p>
             </div>

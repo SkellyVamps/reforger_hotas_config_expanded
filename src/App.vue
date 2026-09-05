@@ -71,7 +71,8 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'PerformAction', filterPreset: 'pressed', hint: 'Context action (interact, reload, etc.)', hardware: 'button', importance: 'important' },
   { name: 'SelectAction', filterPreset: 'previous', hint: 'Cycle through available actions', hardware: 'button', importance: 'optional' },
   { name: 'GetOut', filterPreset: 'click', hint: 'Exit vehicle safely', hardware: 'button', importance: 'important' },
-  { name: 'JumpOut', filterPreset: 'click', hint: 'Emergency eject (dangerous!)', hardware: 'button', importance: 'optional' }
+  { name: 'JumpOut', filterPreset: 'click', hint: 'Emergency eject (dangerous!)', hardware: 'button', importance: 'optional' },
+  { name: 'HelicopterSightDeploy', filterPreset: 'click', hint: 'Deploy or retract the helicopter sight', hardware: 'button', importance: 'optional' }
 ]
 
 // WCS Armament actions (optional mod support)
@@ -204,9 +205,12 @@ interface GamepadVisualization {
   name: string
   axes: number[]
   buttons: boolean[]
+  source: 'gamepad' | 'webhid'
 }
 
 const gamepadVisualizations = ref<GamepadVisualization[]>([])
+const ignoredGamepadIndices = ref<Set<number>>(new Set())
+const ignoredGamepads = ref<{ index: number; name: string }[]>([])
 const webHIDSupported = ref(false)
 const webHIDDevices = ref<WebHIDDeviceInfo[]>([])
 const webHIDError = ref<string | null>(null)
@@ -230,6 +234,24 @@ function changeWebHIDJoystickIndex(key: string, event: Event) {
   const select = event.target as HTMLSelectElement
   setWebHIDJoystickIndex(key, Number.parseInt(select.value, 10))
   refreshWebHIDDevices()
+  resetGamepadBaseline()
+}
+
+function ignoreGamepad(index: number) {
+  const next = new Set(ignoredGamepadIndices.value)
+  next.add(index)
+  ignoredGamepadIndices.value = next
+  delete state.connectedGamepads[index]
+  delete state.previousGamepadState[index]
+  delete state.baselineGamepadState[index]
+  delete axisCalibration[index]
+  resetGamepadBaseline()
+}
+
+function restoreGamepad(index: number) {
+  const next = new Set(ignoredGamepadIndices.value)
+  next.delete(index)
+  ignoredGamepadIndices.value = next
   resetGamepadBaseline()
 }
 
@@ -363,7 +385,7 @@ function getActiveJoystickSnapshots(): JoystickSnapshot[] {
 
   const gamepads = navigator.getGamepads()
   for (const gamepad of gamepads) {
-    if (!gamepad || webHIDIndices.has(gamepad.index)) continue
+    if (!gamepad || webHIDIndices.has(gamepad.index) || ignoredGamepadIndices.value.has(gamepad.index)) continue
     snapshots.push(gamepadToSnapshot(gamepad))
   }
 
@@ -825,13 +847,18 @@ function updateVisualizations(snapshots: JoystickSnapshot[]) {
     axes: snapshot.axes.map((rawValue, axisIndex) =>
       normalizeAxisValue(snapshot.index, axisIndex, rawValue)
     ),
-    buttons: [...snapshot.buttons]
+    buttons: [...snapshot.buttons],
+    source: snapshot.source
   }))
 }
 
 let animationFrameId: number | null = null
 
 function pollGamepads() {
+  ignoredGamepads.value = Array.from(navigator.getGamepads())
+    .filter((gamepad): gamepad is Gamepad => !!gamepad && ignoredGamepadIndices.value.has(gamepad.index))
+    .map(gamepad => ({ index: gamepad.index, name: gamepad.id }))
+
   const snapshots = getActiveJoystickSnapshots()
   const connectedIndices = new Set<number>()
 
@@ -973,6 +1000,10 @@ function generateConfig(): string {
         } else if (action.name.includes('Reset')) {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterSingleClick "${filterGUID}" {\n`
+          config += `      }\n`
+        } else if (action.name === 'HelicopterSightDeploy') {
+          const filterGUID = generateGUID()
+          config += `      Filter InputFilterClick "${filterGUID}" {\n`
           config += `      }\n`
         } else if (action.name.includes('EngineStop')) {
           const filterGUID = generateGUID()
@@ -1646,10 +1677,28 @@ onUnmounted(() => {
             <div v-if="gamepadVisualizations.length === 0" class="viz-no-devices">
               <p>No joysticks detected. Connect a joystick and press any button.</p>
             </div>
-            <div v-for="gamepadViz in gamepadVisualizations" :key="gamepadViz.index" class="viz-gamepad">
+            <div v-if="ignoredGamepads.length > 0" class="viz-gamepad">
+              <div class="viz-gamepad-header">
+                <span class="viz-device-number">Ignored Gamepad API devices</span>
+              </div>
+              <div class="viz-content">
+                <div v-for="device in ignoredGamepads" :key="`ignored-${device.index}`" class="detected-device">
+                  <span>Device {{ device.index }} — {{ device.name }}</span>
+                  <button @click="restoreGamepad(device.index)" class="btn btn-secondary" type="button">Restore</button>
+                </div>
+              </div>
+            </div>
+            <div v-for="gamepadViz in gamepadVisualizations" :key="`${gamepadViz.source}-${gamepadViz.index}`" class="viz-gamepad">
               <div class="viz-gamepad-header">
                 <span class="viz-device-number">Device {{ gamepadViz.index }}</span>
                 <span class="viz-device-name">{{ gamepadViz.name }}</span>
+                <button
+                  v-if="gamepadViz.source === 'gamepad'"
+                  @click="ignoreGamepad(gamepadViz.index)"
+                  class="btn btn-secondary"
+                  type="button"
+                  title="Ignore this Gamepad API device for this session"
+                >Ignore</button>
               </div>
               <div class="viz-content">
                 <div class="viz-axes">

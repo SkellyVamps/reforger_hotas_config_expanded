@@ -992,7 +992,6 @@ function generateConfig(): string {
         if (action.name === 'CharacterNextWeapon') {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterSingleClick "${filterGUID}" {\n`
-          config += `       HoldDuration 25\n`
           config += `      }\n`
         } else if (action.name === 'TurretNextWeapon') {
           const filterGUID = generateGUID()

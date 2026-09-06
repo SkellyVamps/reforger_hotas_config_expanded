@@ -44,7 +44,7 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'CharacterNextMuzzle', filterPreset: 'click', hint: 'Switch muzzle attachment or barrel', hardware: 'button', importance: 'optional' },
   { name: 'TurretFire', filterPreset: 'hold', hint: 'Fire turret weapon (use same trigger as all fire actions)', hardware: 'trigger', importance: 'important' },
   { name: 'TurretReload', filterPreset: 'click', hint: 'Reload turret weapon', hardware: 'button', importance: 'important' },
-  { name: 'TurretNextWeapon', filterPreset: 'hold', hint: 'Cycle turret weapons (250 ms hold-once to prevent skipped weapons)', hardware: 'hat', importance: 'important' },
+  { name: 'TurretNextWeapon', filterPreset: 'hold', hint: 'Cycle turret weapons (25 ms hold-once)', hardware: 'hat', importance: 'important' },
   { name: 'TurretNextFireMode', filterPreset: 'click', hint: 'Change turret fire mode', hardware: 'button', importance: 'optional' },
   { name: 'TurretADS', filterPreset: 'click', hint: 'Aim down sights (toggle)', hardware: 'button', importance: 'optional' },
   { name: 'TurretADSHold', filterPreset: 'hold', hint: 'Aim down sights (hold)', hardware: 'button', importance: 'optional' },
@@ -70,7 +70,7 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'GadgetMap', filterPreset: 'select', hint: 'Open/close map', hardware: 'button', importance: 'important' },
   { name: 'PerformAction', filterPreset: 'pressed', hint: 'Context action (interact, reload, etc.)', hardware: 'button', importance: 'important' },
   { name: 'SelectActionPrevious', confName: 'SelectAction', filterPreset: 'previous', hint: 'Select the previous available context action', hardware: 'button', importance: 'optional' },
-  { name: 'SelectActionNext', confName: 'SelectAction', filterPreset: 'next', hint: 'Select the next available context action', hardware: 'button', importance: 'optional' },
+  { name: 'SelectActionNext', confName: 'SelectAction', filterPreset: 'next', multiplier: -1, hint: 'Select the next available context action', hardware: 'button', importance: 'optional' },
   { name: 'GetOut', filterPreset: 'click', hint: 'Exit vehicle safely', hardware: 'button', importance: 'important' },
   { name: 'JumpOut', filterPreset: 'click', hint: 'Emergency eject (dangerous!)', hardware: 'button', importance: 'optional' },
   { name: 'VehicleDoorToggle', filterPreset: 'click', hint: 'Open or close a supported vehicle door', hardware: 'button', importance: 'optional' },
@@ -971,6 +971,9 @@ function generateConfig(): string {
     const inputSourceGUID = generateGUID()
 
     config += `  Action ${emittedName} {\n`
+    if (emittedName === 'SelectAction' || emittedName === 'HelicopterSightZeroing') {
+      config += `   Type AnalogRelative\n`
+    }
     config += `   InputSource InputSourceSum "${inputSourceGUID}" {\n`
     config += `    Sources {\n`
 
@@ -989,11 +992,12 @@ function generateConfig(): string {
         if (action.name === 'CharacterNextWeapon') {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterSingleClick "${filterGUID}" {\n`
+          config += `       HoldDuration 25\n`
           config += `      }\n`
         } else if (action.name === 'TurretNextWeapon') {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterHoldOnce "${filterGUID}" {\n`
-          config += `       HoldDuration 250\n`
+          config += `       HoldDuration 25\n`
           config += `      }\n`
         } else if (action.confName === 'HelicopterSightZeroing' || action.confName === 'SelectAction') {
           const filterGUID = generateGUID()

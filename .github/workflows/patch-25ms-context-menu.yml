@@ -1,0 +1,37 @@
+name: Patch 25ms Hold and Context Menu
+
+on:
+  push:
+    branches:
+      - fix/25ms-hold-context-menu
+    paths:
+      - 'scripts/patch_25ms_context_menu.py'
+      - '.github/workflows/patch-25ms-context-menu.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/25ms-hold-context-menu
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: python scripts/patch_25ms_context_menu.py
+      - run: npm ci
+      - run: npm run build
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.vue
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Use 25ms weapon holds and fix context menu generation"
+            git push origin HEAD:fix/25ms-hold-context-menu
+          fi

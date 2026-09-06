@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Applies the HOTAS-specific weapon timing and vanilla-compatible context-menu structure.
 path = Path('src/App.vue')
 src = path.read_text(encoding='utf-8')
 

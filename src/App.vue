@@ -46,6 +46,7 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'TurretReload', filterPreset: 'click', hint: 'Reload turret weapon', hardware: 'button', importance: 'important' },
   { name: 'TurretNextWeapon', filterPreset: 'hold', hint: 'Cycle turret weapons (25 ms hold-once)', hardware: 'hat', importance: 'important' },
   { name: 'TurretNextFireMode', filterPreset: 'click', hint: 'Change turret fire mode', hardware: 'button', importance: 'optional' },
+  { name: 'TurretWeaponNextRippleQuantity', filterPreset: 'click', hint: 'Cycle missile/rocket weapon ripple quantity', hardware: 'button', importance: 'important' },
   { name: 'TurretADS', filterPreset: 'click', hint: 'Aim down sights (toggle)', hardware: 'button', importance: 'optional' },
   { name: 'TurretADSHold', filterPreset: 'hold', hint: 'Aim down sights (hold)', hardware: 'button', importance: 'optional' },
   { name: 'TurretRotateLeft', filterPreset: 'left', hint: 'Rotate turret left', hardware: 'stick', importance: 'important' },
@@ -91,7 +92,6 @@ const WCS_ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'WCS_Armament_DeploySmoke', filterPreset: 'hold', hint: 'Deploy smoke (countermeasure)', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_RadarToggle', filterPreset: 'click', hint: 'Toggle radar', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_FireContinuousSmokeDispenser', filterPreset: 'hold', hint: 'Fire continuous smoke dispenser', hardware: 'button', importance: 'optional' },
-  { name: 'TurretWeaponNextRippleQuantity', filterPreset: 'click', hint: 'Cycle weapon ripple quantity', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_ConfirmLock', filterPreset: 'click', hint: 'Confirm missile lock-on (after activating the seeker)', hardware: 'button', importance: 'optional' }
 ]
 

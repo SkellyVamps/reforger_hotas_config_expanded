@@ -12,6 +12,7 @@ let mappingInstalled = false
 let mappingPanelMounted = false
 let mappingPanelTimer: number | null = null
 let ignoreSyncInstalled = false
+let syncingVueIgnore = false
 let lastPanelSignature = ''
 
 function clampReforgerIndex(index: number): number {
@@ -60,9 +61,9 @@ export function getGamepadDeviceKey(gamepad: Gamepad): string {
 }
 
 function ignoredSessionIndex(gamepad: Gamepad): number {
-  // App.vue historically stores ignored devices by Gamepad.index. Give ignored devices a stable,
-  // private negative index derived from device identity so that an ignored joystick can never
-  // collide with joystick0..joystick3 when another device changes its Reforger assignment.
+  // App.vue stores ignored devices by the index it sees from navigator.getGamepads(). Give ignored
+  // devices a private index derived from physical identity so they cannot collide with joystick0-3
+  // after another active device is assigned to the ignored device's old Reforger slot.
   const key = getGamepadDeviceKey(gamepad)
   let hash = 2166136261
   for (let i = 0; i < key.length; i++) {
@@ -321,17 +322,22 @@ function syncPersistedIgnoredRows(status: HTMLElement): void {
     const gamepad = findRawGamepadForRow(row)
     if (!gamepad || !isGamepadIgnored(gamepad)) continue
 
-    const details = row.querySelector<HTMLElement>('.joystick-id')
-    if (details && details.textContent?.includes('Gamepad API')) {
-      details.textContent = 'Gamepad API · Ignored'
-    }
-
+    // Do not fake the visual "Ignored" state by editing DOM text. Let App.vue own the row state so
+    // its opacity and Restore button always agree with the actual in-memory ignore set.
     const button = Array.from(row.querySelectorAll<HTMLButtonElement>('button'))
       .find(candidate => candidate.textContent?.trim() === 'Ignore')
 
-    // App.vue still keeps its current-session ignore state by index. Because mappedGamepad exposes
-    // ignored devices through a private negative index, this can no longer collide with joystick0-3.
-    if (button) button.click()
+    if (!button) continue
+
+    // This click is intentionally allowed through to App.vue. The persistent identity has already
+    // moved the device onto its private ignored index, so Vue records only that private index rather
+    // than also retaining the old joystick0..joystick3 number.
+    syncingVueIgnore = true
+    try {
+      button.click()
+    } finally {
+      syncingVueIgnore = false
+    }
   }
 }
 
@@ -339,13 +345,16 @@ function installPersistentIgnoreSync(status: HTMLElement): void {
   if (ignoreSyncInstalled) return
   ignoreSyncInstalled = true
 
+  // Intercept a user's Ignore click before App.vue records the current Reforger index. Persist the
+  // physical-device identity first, then stop this original click. On the next rendered frame the
+  // device has its private ignored index and syncPersistedIgnoredRows performs a second click that
+  // App.vue can safely record without colliding with an active joystick number.
   status.addEventListener('click', event => {
+    if (syncingVueIgnore) return
+
     const target = event.target as HTMLElement | null
     const button = target?.closest<HTMLButtonElement>('button')
-    if (!button) return
-
-    const action = button.textContent?.trim()
-    if (action !== 'Ignore' && action !== 'Restore') return
+    if (!button || button.textContent?.trim() !== 'Ignore') return
 
     const row = button.closest<HTMLElement>('#joystick-list .joystick-item')
     if (!row) return
@@ -353,12 +362,38 @@ function installPersistentIgnoreSync(status: HTMLElement): void {
     const gamepad = findRawGamepadForRow(row)
     if (!gamepad) return
 
-    setGamepadIgnored(gamepad, action === 'Ignore')
+    setGamepadIgnored(gamepad, true)
+    event.preventDefault()
+    event.stopImmediatePropagation()
+
+    // Give App.vue's requestAnimationFrame poll time to replace the old mapped index with the
+    // private ignored index before rebuilding its session-only ignore state.
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => syncPersistedIgnoredRows(status))
+    })
   }, true)
 
+  // Restore is the reverse order. Let App.vue remove the private ignored index first; because this
+  // listener is on the ancestor in the bubble phase, Vue's button handler has already run when we
+  // clear the persistent identity. The next poll therefore returns the normal Reforger index with
+  // no stale numeric ignore entry left behind.
+  status.addEventListener('click', event => {
+    const target = event.target as HTMLElement | null
+    const button = target?.closest<HTMLButtonElement>('button')
+    if (!button || button.textContent?.trim() !== 'Restore') return
+
+    const row = button.closest<HTMLElement>('#joystick-list .joystick-item')
+    if (!row) return
+
+    const gamepad = findRawGamepadForRow(row)
+    if (!gamepad) return
+
+    setGamepadIgnored(gamepad, false)
+  })
+
   // Reapply saved device identities after first render and after reconnects. App.vue receives a
-  // private negative index for ignored devices, so its session-only numeric set never overlaps an
-  // active Reforger joystick number.
+  // private index for persisted ignored devices; this periodic sync only asks Vue to mirror that
+  // state and never edits the row text or opacity itself.
   window.setInterval(() => syncPersistedIgnoredRows(status), 500)
 }
 

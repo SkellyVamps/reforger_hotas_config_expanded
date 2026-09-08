@@ -5,6 +5,7 @@ const IGNORE_CHANGED_EVENT = 'reforger-ignored-gamepads-changed'
 const IGNORE_COOKIE_NAME = 'reforger_ignored_gamepads'
 const IGNORE_STORAGE_KEY = 'reforger-ignored-gamepads'
 const IGNORE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+const IGNORED_INDEX_BASE = 1000
 
 const nativeGetGamepads = navigator.getGamepads.bind(navigator)
 let mappingInstalled = false
@@ -56,6 +57,20 @@ export function getRawGamepads(): (Gamepad | null)[] {
 // to the standard Gamepad API and therefore share an ignore preference.
 export function getGamepadDeviceKey(gamepad: Gamepad): string {
   return `${gamepad.id}|${gamepad.mapping || 'none'}|buttons:${gamepad.buttons.length}|axes:${gamepad.axes.length}`
+}
+
+function ignoredSessionIndex(gamepad: Gamepad): number {
+  // App.vue historically stores ignored devices by Gamepad.index. Give ignored devices a stable,
+  // private negative index derived from device identity so that an ignored joystick can never
+  // collide with joystick0..joystick3 when another device changes its Reforger assignment.
+  const key = getGamepadDeviceKey(gamepad)
+  let hash = 2166136261
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  return -(IGNORED_INDEX_BASE + (hash >>> 0))
 }
 
 function readIgnoredDeviceKeysFromCookie(): Set<string> | null {
@@ -149,11 +164,10 @@ export function setReforgerIndexForGamepad(gamepad: Gamepad, index: number): voi
   const previousIndex = getReforgerIndexForGamepad(gamepad)
   const targetStorageKey = storageKey(gamepad)
 
-  // Keep currently connected Gamepad API devices unique where possible. Choosing an index already
-  // used by another different device swaps the two assignments rather than producing two devices
-  // that both generate joystickN bindings.
+  // Keep currently connected, active Gamepad API devices unique where possible. Ignored devices
+  // do not reserve a Reforger joystick number, so an active joystick may freely take their old slot.
   for (const other of getRawGamepads()) {
-    if (!other || storageKey(other) === targetStorageKey) continue
+    if (!other || isGamepadIgnored(other) || storageKey(other) === targetStorageKey) continue
     if (getReforgerIndexForGamepad(other) !== nextIndex) continue
 
     writeSavedIndex(other, previousIndex)
@@ -165,11 +179,13 @@ export function setReforgerIndexForGamepad(gamepad: Gamepad, index: number): voi
 }
 
 function mappedGamepad(gamepad: Gamepad): Gamepad {
-  const reforgerIndex = getReforgerIndexForGamepad(gamepad)
+  const exposedIndex = isGamepadIgnored(gamepad)
+    ? ignoredSessionIndex(gamepad)
+    : getReforgerIndexForGamepad(gamepad)
 
   return new Proxy(gamepad, {
     get(target, property) {
-      if (property === 'index') return reforgerIndex
+      if (property === 'index') return exposedIndex
 
       const value = Reflect.get(target, property, target)
       if (typeof value === 'function') return value.bind(target)
@@ -305,12 +321,16 @@ function syncPersistedIgnoredRows(status: HTMLElement): void {
     const gamepad = findRawGamepadForRow(row)
     if (!gamepad || !isGamepadIgnored(gamepad)) continue
 
+    const details = row.querySelector<HTMLElement>('.joystick-id')
+    if (details && details.textContent?.includes('Gamepad API')) {
+      details.textContent = 'Gamepad API · Ignored'
+    }
+
     const button = Array.from(row.querySelectorAll<HTMLButtonElement>('button'))
       .find(candidate => candidate.textContent?.trim() === 'Ignore')
 
-    // Rebuild the Vue component's session-only numeric ignore set from our persistent device key.
-    // This means reconnecting a device on a different browser/Reforger index still ignores the
-    // same physical model instead of whichever device happens to occupy the old index.
+    // App.vue still keeps its current-session ignore state by index. Because mappedGamepad exposes
+    // ignored devices through a private negative index, this can no longer collide with joystick0-3.
     if (button) button.click()
   }
 }
@@ -336,8 +356,9 @@ function installPersistentIgnoreSync(status: HTMLElement): void {
     setGamepadIgnored(gamepad, action === 'Ignore')
   }, true)
 
-  // App.vue keeps ignored devices in memory using the current joystick index. Reapply the saved
-  // device identities after first render and after future reconnects/index changes.
+  // Reapply saved device identities after first render and after reconnects. App.vue receives a
+  // private negative index for ignored devices, so its session-only numeric set never overlaps an
+  // active Reforger joystick number.
   window.setInterval(() => syncPersistedIgnoredRows(status), 500)
 }
 

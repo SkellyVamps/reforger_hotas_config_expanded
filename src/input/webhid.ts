@@ -1,3 +1,9 @@
+import {
+  getRawGamepads,
+  getReforgerIndexForGamepad,
+  setReforgerIndexForGamepad
+} from './reforgerIndex'
+
 export type InputSource = 'webhid' | 'gamepad'
 
 export interface JoystickSnapshot {
@@ -14,6 +20,7 @@ export interface WebHIDDeviceInfo {
   vendorId: number
   productId: number
   joystickIndex: number
+  browserIndex: number | null
   buttonCount: number
   axisCount: number
   opened: boolean
@@ -87,6 +94,7 @@ interface ParsedReport {
 interface ManagedHIDDevice {
   key: string
   device: HIDDeviceLike
+  browserIndex: number | null
   joystickIndex: number
   buttons: boolean[]
   axes: number[]
@@ -273,8 +281,8 @@ function matchingGamepadIndex(device: HIDDeviceLike): number | null {
   const vendorHex = device.vendorId.toString(16).padStart(4, '0').toLowerCase()
   const productHex = device.productId.toString(16).padStart(4, '0').toLowerCase()
 
-  for (const gamepad of navigator.getGamepads()) {
-    if (!gamepad || gamepad.index >= MAX_REFORGER_JOYSTICKS) continue
+  for (const gamepad of getRawGamepads()) {
+    if (!gamepad) continue
 
     const id = gamepad.id.toLowerCase()
     const normalizedId = normalizeDeviceName(gamepad.id)
@@ -301,13 +309,7 @@ function firstFreeJoystickIndex(): number {
   return 0
 }
 
-function loadJoystickIndex(device: HIDDeviceLike): number {
-  const matchedIndex = matchingGamepadIndex(device)
-  if (matchedIndex !== null) {
-    saveJoystickIndex(device, matchedIndex)
-    return matchedIndex
-  }
-
+function loadSavedJoystickIndex(device: HIDDeviceLike): number | null {
   try {
     const saved = localStorage.getItem(mappingStorageKey(device))
     if (saved !== null) {
@@ -316,6 +318,25 @@ function loadJoystickIndex(device: HIDDeviceLike): number {
     }
   } catch {
     // Ignore storage failures.
+  }
+
+  return null
+}
+
+function loadJoystickIndex(device: HIDDeviceLike, browserIndex: number | null): number {
+  const rawGamepads = getRawGamepads()
+  const matchedGamepad = browserIndex !== null ? rawGamepads[browserIndex] : null
+  const saved = loadSavedJoystickIndex(device)
+
+  if (saved !== null) {
+    if (matchedGamepad) setReforgerIndexForGamepad(matchedGamepad, saved)
+    return saved
+  }
+
+  if (matchedGamepad) {
+    const reforgerIndex = getReforgerIndexForGamepad(matchedGamepad)
+    saveJoystickIndex(device, reforgerIndex)
+    return reforgerIndex
   }
 
   return firstFreeJoystickIndex()
@@ -327,6 +348,23 @@ function saveJoystickIndex(device: HIDDeviceLike, index: number) {
   } catch {
     // Mapping still works for this session.
   }
+}
+
+function refreshMatchedGamepad(managed: ManagedHIDDevice): Gamepad | null {
+  const browserIndex = matchingGamepadIndex(managed.device)
+  managed.browserIndex = browserIndex
+  if (browserIndex === null) return null
+
+  const gamepad = getRawGamepads()[browserIndex]
+  if (!gamepad) return null
+
+  const reforgerIndex = getReforgerIndexForGamepad(gamepad)
+  if (managed.joystickIndex !== reforgerIndex) {
+    managed.joystickIndex = reforgerIndex
+    saveJoystickIndex(managed.device, reforgerIndex)
+  }
+
+  return gamepad
 }
 
 function makeDeviceKey(device: HIDDeviceLike): string {
@@ -408,10 +446,12 @@ async function registerDevice(device: HIDDeviceLike): Promise<void> {
 
   const parsed = parseReports(device)
   const key = makeDeviceKey(device)
+  const browserIndex = matchingGamepadIndex(device)
   const managed: ManagedHIDDevice = {
     key,
     device,
-    joystickIndex: loadJoystickIndex(device),
+    browserIndex,
+    joystickIndex: loadJoystickIndex(device, browserIndex),
     buttons: Array.from({ length: parsed.buttonCount }, () => false),
     axes: Array.from({ length: parsed.axisCount }, () => 0),
     reports: parsed.reports,
@@ -480,29 +520,31 @@ export async function requestWebHIDDevices(): Promise<WebHIDDeviceInfo[]> {
 
 export function getWebHIDDevices(): WebHIDDeviceInfo[] {
   return [...managedDevices.values()]
-    .map(managed => ({
-      key: managed.key,
-      name: managed.device.productName || 'HID Joystick',
-      vendorId: managed.device.vendorId,
-      productId: managed.device.productId,
-      joystickIndex: managed.joystickIndex,
-      buttonCount: managed.buttonCount,
-      axisCount: managed.axisCount,
-      opened: managed.device.opened
-    }))
+    .map(managed => {
+      refreshMatchedGamepad(managed)
+      return {
+        key: managed.key,
+        name: managed.device.productName || 'HID Joystick',
+        vendorId: managed.device.vendorId,
+        productId: managed.device.productId,
+        joystickIndex: managed.joystickIndex,
+        browserIndex: managed.browserIndex,
+        buttonCount: managed.buttonCount,
+        axisCount: managed.axisCount,
+        opened: managed.device.opened
+      }
+    })
     .sort((a, b) => a.joystickIndex - b.joystickIndex)
 }
 
 export function getWebHIDSnapshots(): JoystickSnapshot[] {
-  const gamepads = navigator.getGamepads()
-
   return [...managedDevices.values()].map(managed => {
-    const gamepad = gamepads[managed.joystickIndex]
+    const gamepad = refreshMatchedGamepad(managed)
 
     if (gamepad) {
-      // Reforger's existing mappings matched the browser Gamepad API. Keep that
-      // numbering for every control the Gamepad API can expose, then append the
-      // additional WebHID buttons that exist beyond its 32-button limit.
+      // Use the browser/Gamepad API only to read the physical device. The generated joystickN
+      // comes from the user's persistent Reforger mapping and can stay stable after reconnects.
+      // WebHID still extends the button array beyond the Gamepad API's exposed button count.
       const buttons = gamepad.buttons.map(button => button.pressed)
       for (let buttonIndex = buttons.length; buttonIndex < managed.buttons.length; buttonIndex++) {
         buttons[buttonIndex] = managed.buttons[buttonIndex]
@@ -517,8 +559,8 @@ export function getWebHIDSnapshots(): JoystickSnapshot[] {
       }
     }
 
-    // If no Gamepad API counterpart exists, fall back to raw WebHID so the
-    // device remains usable instead of disappearing entirely.
+    // If no Gamepad API counterpart exists, fall back to raw WebHID. Its Reforger index is still
+    // user-selectable through the existing WebHID device control.
     return {
       index: managed.joystickIndex,
       id: `${managed.device.productName || 'HID Joystick'} (WebHID)`,
@@ -536,6 +578,14 @@ export function setWebHIDJoystickIndex(key: string, joystickIndex: number): void
   const clampedIndex = Math.min(MAX_REFORGER_JOYSTICKS - 1, Math.max(0, Math.trunc(joystickIndex)))
   managed.joystickIndex = clampedIndex
   saveJoystickIndex(managed.device, clampedIndex)
+
+  const gamepad = refreshMatchedGamepad(managed)
+  if (gamepad) {
+    setReforgerIndexForGamepad(gamepad, clampedIndex)
+    managed.joystickIndex = clampedIndex
+    saveJoystickIndex(managed.device, clampedIndex)
+  }
+
   changeListener?.()
 }
 

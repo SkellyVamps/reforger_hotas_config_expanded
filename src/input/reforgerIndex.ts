@@ -290,7 +290,12 @@ function findRawGamepadForRow(row: HTMLElement): Gamepad | null {
   const name = row.querySelector<HTMLElement>('.joystick-name')?.textContent?.trim()
   if (!name) return null
 
-  return getRawGamepads().find((gamepad): gamepad is Gamepad => Boolean(gamepad) && gamepad.id === name) ?? null
+  const gamepads = getRawGamepads()
+  for (const gamepad of gamepads) {
+    if (gamepad !== null && gamepad.id === name) return gamepad
+  }
+
+  return null
 }
 
 function syncPersistedIgnoredRows(status: HTMLElement): void {

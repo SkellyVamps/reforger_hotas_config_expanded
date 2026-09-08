@@ -79,13 +79,16 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'HelicopterSightZeroingDecrease', confName: 'HelicopterSightZeroing', filterPreset: 'down', multiplier: -1, hint: 'Decrease helicopter sight zeroing', hardware: 'button', importance: 'optional' }
 ]
 
-// WCS Armament actions (optional mod support). Runtime testing shows WCS pilot weapon cycling uses
-// VehicleNextWeapon and ripple quantity uses TurretWeaponNextRippleQuantity, both included above.
+// WCS Armament actions (optional mod support). VehicleNextWeapon and
+// TurretWeaponNextRippleQuantity are runtime-tested flight actions above, while these WCS-specific
+// actions remain available because other WCS vehicles may use them directly.
 const WCS_ACTIONS: Omit<Action, 'bindings'>[] = [
+  { name: 'WCS_Armament_CycleWeapon', filterPreset: 'click', hint: 'Cycle to next weapon on WCS vehicles that use the WCS-specific action', hardware: 'button', importance: 'important' },
   { name: 'WCS_Armament_DeployFlares', filterPreset: 'hold', hint: 'Deploy flares (countermeasure)', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_DeployChaffs', filterPreset: 'hold', hint: 'Deploy chaff (countermeasure)', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_TurretStabilizationToggle', filterPreset: 'click', hint: 'Toggle turret stabilization', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_VehicleAim', filterPreset: 'hold', hint: 'Vehicle aim mode', hardware: 'button', importance: 'optional' },
+  { name: 'WCS_Armament_CycleWeaponFireMode', filterPreset: 'click', hint: 'Cycle WCS weapon fire mode on vehicles that use this action', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_ActivateLock', filterPreset: 'hold', hint: 'Activate weapon lock', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_DeploySmoke', filterPreset: 'hold', hint: 'Deploy smoke (countermeasure)', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_RadarToggle', filterPreset: 'click', hint: 'Toggle radar', hardware: 'button', importance: 'optional' },
@@ -1423,7 +1426,7 @@ onUnmounted(() => {
         <h3>WCS Mod Support (Experimental)</h3>
         <div class="about-content">
           <p>This tool includes optional support for the <strong>WCS Armament mod</strong> which adds advanced weapon systems to helicopters and vehicles. Enable "Include WCS Armament actions" in the action list to configure these bindings.</p>
-          <p><strong>Runtime-tested pilot bindings:</strong> WCS helicopters use <code>VehicleNextWeapon</code> for pilot weapon cycling, while ripple quantity uses <code>TurretWeaponNextRippleQuantity</code>. Both are now part of the normal flight action list; the WCS toggle only adds WCS-specific functions such as countermeasures, radar, locking, and stabilization.</p>
+          <p><strong>Runtime-tested pilot bindings:</strong> The tested WCS helicopter uses <code>VehicleNextWeapon</code> for pilot weapon cycling, while ripple quantity uses <code>TurretWeaponNextRippleQuantity</code>. The WCS-specific <code>WCS_Armament_CycleWeapon</code> and <code>WCS_Armament_CycleWeaponFireMode</code> actions are still available for other WCS vehicles that may use them directly.</p>
         </div>
       </div>
     </div>

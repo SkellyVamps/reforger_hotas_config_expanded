@@ -3,10 +3,8 @@ import './style.css'
 import App from './App.vue'
 import ScriptX from 'vue-scriptx'
 import Ads from 'vue-google-adsense'
-import {
-  installReforgerIndexMapping,
-  mountReforgerIndexPanel
-} from './input/reforgerIndex'
+import { installReforgerIndexMapping } from './input/reforgerIndex'
+import { mountMergedDevicePanel } from './input/mergedDevices'
 
 // Keep the browser's physical Gamepad API index separate from the joystickN number written to
 // Reforger configs. Install this before App mounts so all existing detection logic sees the
@@ -19,4 +17,4 @@ app.use(ScriptX)
 app.use(Ads.Adsense, {})
 
 app.mount('#app')
-mountReforgerIndexPanel()
+mountMergedDevicePanel()

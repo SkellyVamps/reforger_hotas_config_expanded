@@ -39,14 +39,13 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'HelicopterEngineStart', filterPreset: 'hold', hint: 'Start engine and rotors', hardware: 'button', importance: 'critical' },
   { name: 'HelicopterEngineStop', filterPreset: 'click', hint: 'Stop engine and rotors', hardware: 'button', importance: 'critical' },
   { name: 'CharacterFire', filterPreset: 'hold', hint: 'Fire primary weapon (use same trigger as all fire actions)', hardware: 'trigger', importance: 'critical' },
-  { name: 'CharacterNextWeapon', filterPreset: 'click', hint: 'Switch to next weapon (use same button as all weapon switch actions)', hardware: 'hat', importance: 'important' },
-  { name: 'CharacterNextFireMode', filterPreset: 'click', hint: 'Change fire mode (single/burst/auto)', hardware: 'button', importance: 'important' },
+  { name: 'VehicleNextWeapon', filterPreset: 'click', hint: 'Cycle pilot/vehicle weapons (used by WCS helicopters and aircraft)', hardware: 'hat', importance: 'important' },
+  { name: 'TurretWeaponNextRippleQuantity', filterPreset: 'click', hint: 'Cycle missile/rocket weapon ripple quantity', hardware: 'button', importance: 'important' },
   { name: 'CharacterNextMuzzle', filterPreset: 'click', hint: 'Switch muzzle attachment or barrel', hardware: 'button', importance: 'optional' },
   { name: 'TurretFire', filterPreset: 'hold', hint: 'Fire turret weapon (use same trigger as all fire actions)', hardware: 'trigger', importance: 'important' },
   { name: 'TurretReload', filterPreset: 'click', hint: 'Reload turret weapon', hardware: 'button', importance: 'important' },
   { name: 'TurretNextWeapon', filterPreset: 'hold', hint: 'Cycle turret weapons (25 ms hold-once)', hardware: 'hat', importance: 'important' },
   { name: 'TurretNextFireMode', filterPreset: 'click', hint: 'Change turret fire mode', hardware: 'button', importance: 'optional' },
-  { name: 'TurretWeaponNextRippleQuantity', filterPreset: 'click', hint: 'Cycle missile/rocket weapon ripple quantity', hardware: 'button', importance: 'important' },
   { name: 'TurretADS', filterPreset: 'click', hint: 'Aim down sights (toggle)', hardware: 'button', importance: 'optional' },
   { name: 'TurretADSHold', filterPreset: 'hold', hint: 'Aim down sights (hold)', hardware: 'button', importance: 'optional' },
   { name: 'TurretRotateLeft', filterPreset: 'left', hint: 'Rotate turret left', hardware: 'stick', importance: 'important' },
@@ -80,14 +79,13 @@ const ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'HelicopterSightZeroingDecrease', confName: 'HelicopterSightZeroing', filterPreset: 'down', multiplier: -1, hint: 'Decrease helicopter sight zeroing', hardware: 'button', importance: 'optional' }
 ]
 
-// WCS Armament actions (optional mod support)
+// WCS Armament actions (optional mod support). Runtime testing shows WCS pilot weapon cycling uses
+// VehicleNextWeapon and ripple quantity uses TurretWeaponNextRippleQuantity, both included above.
 const WCS_ACTIONS: Omit<Action, 'bindings'>[] = [
-  { name: 'WCS_Armament_CycleWeapon', filterPreset: 'click', hint: 'Cycle to next weapon (pilot/vehicle weapons)', hardware: 'button', importance: 'important' },
   { name: 'WCS_Armament_DeployFlares', filterPreset: 'hold', hint: 'Deploy flares (countermeasure)', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_DeployChaffs', filterPreset: 'hold', hint: 'Deploy chaff (countermeasure)', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_TurretStabilizationToggle', filterPreset: 'click', hint: 'Toggle turret stabilization', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_VehicleAim', filterPreset: 'hold', hint: 'Vehicle aim mode', hardware: 'button', importance: 'optional' },
-  { name: 'WCS_Armament_CycleWeaponFireMode', filterPreset: 'click', hint: 'Cycle weapon fire mode', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_ActivateLock', filterPreset: 'hold', hint: 'Activate weapon lock', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_DeploySmoke', filterPreset: 'hold', hint: 'Deploy smoke (countermeasure)', hardware: 'button', importance: 'optional' },
   { name: 'WCS_Armament_RadarToggle', filterPreset: 'click', hint: 'Toggle radar', hardware: 'button', importance: 'optional' },
@@ -109,7 +107,6 @@ const AIRCRAFT_ACTIONS: Omit<Action, 'bindings'>[] = [
   { name: 'PFC_ThrottleAxis', rawAxis: true, filterPreset: 'forward', hint: 'Move your throttle lever FORWARD — the whole axis is captured, full travel = idle to full thrust', hardware: 'throttle', importance: 'critical' },
   { name: 'PFC_ThrottleUp', filterPreset: 'hold', hint: 'Throttle up (button fallback if you have no throttle axis)', hardware: 'button', importance: 'optional' },
   { name: 'PFC_ThrottleDown', filterPreset: 'hold', hint: 'Throttle down (button fallback if you have no throttle axis)', hardware: 'button', importance: 'optional' },
-  { name: 'VehicleNextWeapon', filterPreset: 'click', hint: 'Cycle aircraft weapons (use same button as all weapon switch actions)', hardware: 'hat', importance: 'important' },
   { name: 'PFC_GearToggle', filterPreset: 'click', hint: 'Landing gear up/down', hardware: 'button', importance: 'important' },
   { name: 'PFC_Flaps', filterPreset: 'click', hint: 'Cycle flaps (clean / takeoff / landing)', hardware: 'button', importance: 'important' },
   { name: 'PFC_Airbrake', filterPreset: 'click', hint: 'Airbrake toggle', hardware: 'button', importance: 'important' },
@@ -309,7 +306,7 @@ const isConfigurationComplete = computed(() => {
 const FIRE_ACTION_NAMES = ['CharacterFire', 'TurretFire', 'HelicopterFire', 'VehicleFire']
 
 // Weapon switching action helpers
-const WEAPON_SWITCH_ACTION_NAMES = ['CharacterNextWeapon', 'TurretNextWeapon', 'VehicleNextWeapon']
+const WEAPON_SWITCH_ACTION_NAMES = ['TurretNextWeapon', 'VehicleNextWeapon']
 
 const isCurrentActionFireAction = computed(() => {
   if (!currentAction.value) return false
@@ -989,7 +986,7 @@ function generateConfig(): string {
         config += `      FilterPreset "${action.filterPreset}"\n`
         config += `      Input "${input}"\n`
 
-        if (action.name === 'CharacterNextWeapon') {
+        if (action.name === 'VehicleNextWeapon') {
           const filterGUID = generateGUID()
           config += `      Filter InputFilterSingleClick "${filterGUID}" {\n`
           config += `      }\n`
@@ -1426,7 +1423,7 @@ onUnmounted(() => {
         <h3>WCS Mod Support (Experimental)</h3>
         <div class="about-content">
           <p>This tool includes optional support for the <strong>WCS Armament mod</strong> which adds advanced weapon systems to helicopters and vehicles. Enable "Include WCS Armament actions" in the action list to configure these bindings.</p>
-          <p><strong>Note:</strong> Some WCS action names (like <em>WCS_Armament_CycleWeapon</em> for pilot weapon switching) are speculative and may not match the actual mod implementation. If you find that certain WCS bindings don't work, or if you know the correct action names, please let us know on our <a href="https://discord.deltafarce.win" target="_blank" rel="noopener noreferrer">Discord</a> or <a href="https://github.com/jscrobinson/reforger_hotas_config/issues" target="_blank" rel="noopener noreferrer">GitHub</a> so we can update the tool.</p>
+          <p><strong>Runtime-tested pilot bindings:</strong> WCS helicopters use <code>VehicleNextWeapon</code> for pilot weapon cycling, while ripple quantity uses <code>TurretWeaponNextRippleQuantity</code>. Both are now part of the normal flight action list; the WCS toggle only adds WCS-specific functions such as countermeasures, radar, locking, and stabilization.</p>
         </div>
       </div>
     </div>
@@ -1673,7 +1670,7 @@ onUnmounted(() => {
             <div class="fire-action-icon">🔄</div>
             <div class="fire-action-content">
               <strong>Important: Weapon Switch Binding</strong>
-              <p>All weapon switch actions (CharacterNextWeapon, TurretNextWeapon, VehicleNextWeapon) should be bound to the SAME button. This ensures consistent weapon cycling across all contexts.</p>
+              <p><strong>VehicleNextWeapon</strong> is the primary pilot/vehicle weapon-cycle action, including WCS helicopters. <strong>TurretNextWeapon</strong> can use the same button for turret seats.</p>
               <div v-if="firstConfiguredWeaponSwitchAction && firstConfiguredWeaponSwitchAction.name !== currentAction?.name" class="fire-action-suggestion">
                 <p>✓ You already configured <strong>{{ formatActionName(firstConfiguredWeaponSwitchAction.name) }}</strong> to <strong>{{ firstConfiguredWeaponSwitchAction.bindings.join(', ') }}</strong></p>
                 <button @click="copyWeaponSwitchBinding" class="btn btn-primary btn-small">
